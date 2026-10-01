@@ -61,6 +61,7 @@ struct UsagePanel: View {
             }
             .frame(height: min(listHeight, maxListHeight))
             .onPreferenceChange(ListHeightKey.self) { listHeight = $0 }
+            .background(WindowFitter(trigger: [listHeight, store.configError == nil ? 0 : 1]))
             if let err = store.configError {
                 Text(err)
                     .font(.caption)
@@ -87,6 +88,28 @@ struct UsagePanel: View {
         .padding(14)
         .frame(width: 340)
         .onAppear { store.panelOpened() }
+    }
+}
+
+/// MenuBarExtra のウィンドウは中身が小さくなっても縮まないことがあるので、
+/// 中身の高さが変わるたびに上端を固定したままウィンドウを中身に合わせる
+private struct WindowFitter: NSViewRepresentable {
+    let trigger: [CGFloat]
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = view.window, let content = window.contentView else { return }
+            let fitting = content.fittingSize
+            guard fitting.height > 0 else { return }
+            let height = window.frameRect(forContentRect: NSRect(origin: .zero, size: fitting)).height
+            var frame = window.frame
+            guard abs(frame.height - height) > 0.5 else { return }
+            frame.origin.y += frame.height - height
+            frame.size.height = height
+            window.setFrame(frame, display: true)
+        }
     }
 }
 
@@ -174,7 +197,7 @@ struct AccountSection: View {
     /// クリックで開閉
     private var header: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            expanded.toggle()
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "chevron.right")
