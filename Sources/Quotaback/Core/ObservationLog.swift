@@ -77,6 +77,16 @@ struct ObservationLog {
         }
     }
 
+    /// 取り違えて記録した最新バッチを取り消し、それより前の観測に戻す
+    mutating func retractLatest(of account: AccountKey) {
+        guard let bad = latest[account] else { return }
+        let before = history.count
+        history.removeAll { $0.account == account && $0.observedAt == bad.observedAt }
+        if history.count != before { rewriteHistory() }
+        latest[account] = history.last { $0.account == account && $0.observedAt < bad.observedAt }
+        saveLatest()
+    }
+
     /// 枠の構成・値・リセット時刻（分単位）が同じなら同じとみなす
     static func sameValues(_ a: ObservationBatch, _ b: ObservationBatch) -> Bool {
         guard a.windows.count == b.windows.count else { return false }

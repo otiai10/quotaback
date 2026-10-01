@@ -72,5 +72,11 @@ final class EstimatorTests: XCTestCase {
         let credits = Estimator.estimate(window("spend", percent: 60, resetsAt: t0 + day, isLimit: false),
                                          observedAt: t0 + hour, isLive: true, history: pts, now: t0 + hour)
         XCTAssertNil(credits.limitETA)
+        let notLive = Estimator.estimate(window(percent: 60, resetsAt: t0 + day), observedAt: t0 + hour,
+                                         isLive: false, history: pts, now: t0 + hour)
+        XCTAssertNil(notLive.limitETA, "ログインしていないアカウントのペースは出さない")
+        let past = Estimator.estimate(window(percent: 60, resetsAt: t0 + day), observedAt: t0 + hour,
+                                      isLive: true, history: pts, now: t0 + 4 * hour)
+        XCTAssertNil(past.limitETA, "見込み時刻を過ぎていたら出さない")
     }
 }

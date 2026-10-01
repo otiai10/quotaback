@@ -63,6 +63,40 @@ final class UsageEngineTests: XCTestCase {
         XCTAssertEqual(views[1].windows.first?.window.percent, 40)
     }
 
+    /// Keychain が先に書き換わった場合: P の新しいトークンが W として記録されてしまうが、
+    /// 同じトークンが P を名乗り続ければ P を正とし、W に記録した分は取り消す
+    func testCredentialWrittenBeforeOwnerIsCorrected() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "w@example.com")
+        f.percent = 40
+        await e.refresh([f.target], now: { t0 })
+        // Keychain だけ P の新しいトークンになった状態で取得 → W として記録されてしまう
+        f.token = "token-p"; f.percent = 15
+        await e.refresh([f.target], now: { t0 + 300 })
+        // .claude.json も P に
+        f.owner = "p@example.com"
+        let first = await e.refresh([f.target], now: { t0 + 310 })
+        guard case .skipped = first[0].outcome else { return XCTFail("\(first[0].outcome)") }
+        // 少し後でも同じ組み合わせ → P として記録し、W の取り違えを取り消す
+        let second = await e.refresh([f.target], now: { t0 + 310 + UsageEngine.conflictSettle })
+        guard case .recorded = second[0].outcome else { return XCTFail("\(second[0].outcome)") }
+
+        let views = await e.accountViews(config: accounts, now: t0 + 400)
+        XCTAssertEqual(views.map(\.menuBarText), ["P 15%", "W ≥40%"])
+        XCTAssertEqual(views[1].observedAt, t0, "W は取り違える前の観測に戻る")
+    }
+
+    func testConflictIsNotAcceptedBeforeSettling() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "w@example.com")
+        await e.refresh([f.target], now: { t0 })
+        f.owner = "p@example.com"
+        for dt in [10.0, 20.0] {
+            let r = await e.refresh([f.target], now: { t0 + dt })
+            guard case .skipped = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+        }
+    }
+
     func testSkipsWhenOwnerChangesDuringFetch() async throws {
         let e = try engine()
         let f = FakeTarget(owner: "w@example.com")

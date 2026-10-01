@@ -45,6 +45,21 @@ final class ObservationLogTests: XCTestCase {
         XCTAssertEqual(pts.map(\.1), [5, 9])
     }
 
+    func testRetractLatestRestoresPreviousObservation() throws {
+        let dir = try tempDirectory()
+        var log = ObservationLog.load(directory: dir, now: t0)
+        log.record(batch(w, at: t0, [window(percent: 40, resetsAt: nil)]))
+        log.record(batch(w, at: t0 + 300, [window(percent: 15, resetsAt: nil)]))
+        log.retractLatest(of: w)
+
+        XCTAssertEqual(log.latest[w]?.observedAt, t0)
+        XCTAssertEqual(log.history.count, 1)
+        XCTAssertEqual(ObservationLog.load(directory: dir, now: t0).latest[w]?.windows.first?.percent, 40)
+
+        log.retractLatest(of: w)
+        XCTAssertNil(log.latest[w], "それより前が無ければ未観測に戻る")
+    }
+
     func testPrunesOldHistory() throws {
         let dir = try tempDirectory()
         var log = ObservationLog.load(directory: dir, now: t0)

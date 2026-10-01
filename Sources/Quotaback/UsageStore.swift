@@ -48,18 +48,27 @@ final class UsageStore: ObservableObject {
         refresh(targets)
     }
 
-    private func refresh(_ list: [PollTarget]) {
+    /// - Parameter retries: 切り替え途中で見送られた対象を取り直す残り回数
+    private func refresh(_ list: [PollTarget], retries: Int = 2) {
         guard !list.isEmpty else { return }
         // 取得中に呼ばれたら、終わってからもう一度まとめて取る
         guard !refreshing else { pending = true; return }
         refreshing = true
         Task {
-            await engine.refresh(list)
+            let reports = await engine.refresh(list)
             await updateViews()
             refreshing = false
             if pending {
                 pending = false
                 refreshAll()
+            }
+            let skipped = reports.compactMap { r -> PollTarget? in
+                if case .skipped = r.outcome { return r.target }
+                return nil
+            }
+            if !skipped.isEmpty && retries > 0 {
+                try? await Task.sleep(nanoseconds: UInt64((UsageEngine.conflictSettle + 5) * 1_000_000_000))
+                refresh(skipped, retries: retries - 1)
             }
         }
     }

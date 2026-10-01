@@ -23,7 +23,7 @@ struct WindowEstimate: Identifiable, Hashable {
     let value: Value
     let nextReset: NextReset
     let observedAt: Date
-    /// 今のペースで使い続けたときに 100% に達する推定時刻（リセットより前のときだけ）
+    /// 今のペースで使い続けたときに 100% に達する推定時刻（ログイン中・リセットより前・未来のときだけ）
     let limitETA: Date?
 
     var id: String { window.key }
@@ -51,7 +51,9 @@ enum Estimator {
         return WindowEstimate(window: w, value: value,
                               nextReset: nextReset(w, now: now, calendar: calendar),
                               observedAt: observedAt,
-                              limitETA: passed || !w.isLimit ? nil : limitETA(history: history, resetsAt: w.resetsAt))
+                              // ペースはいま使っているアカウントにだけ意味がある
+                              limitETA: passed || !w.isLimit || !isLive ? nil
+                                  : limitETA(history: history, resetsAt: w.resetsAt).flatMap { $0 > now ? $0 : nil })
     }
 
     static func nextReset(_ w: WindowObservation, now: Date, calendar: Calendar = .current) -> WindowEstimate.NextReset {

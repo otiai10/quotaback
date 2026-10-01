@@ -9,6 +9,14 @@ actor UsageEngine {
     private var errorByTarget: [String: (AccountKey, String)] = [:]
     /// 認証情報のハッシュ → それを最後に割り当てたアカウント（メモリ上のみ）
     private var fingerprintOwner: [String: AccountKey] = [:]
+    /// 割り当てと食い違ったハッシュ → 新しく名乗った持ち主と最初に見た時刻
+    private var conflicts: [String: (owner: AccountKey, since: Date)] = [:]
+    /// アカウント → 最新バッチを取ったときの認証情報のハッシュ（取り違えの取り消し用）
+    private var latestFingerprint: [AccountKey: String] = [:]
+
+    /// 食い違いを「本当の持ち主の変更」と認めるまでの時間。
+    /// `/login` で持ち主の情報と認証情報のどちらが先に書かれても、この間に両方そろう想定
+    static let conflictSettle: TimeInterval = 30
     /// 対象 → 前回確認した持ち主と判定元の更新時刻（切り替え検知用）
     private var knownOwner: [String: String?] = [:]
     private var knownStamp: [String: Date?] = [:]
@@ -57,15 +65,30 @@ actor UsageEngine {
                 liveByTarget[t.id] = nil
                 return Report(target: t, owner: before, outcome: .skipped("取得中に持ち主が変わった（\(before ?? "?") → \(after ?? "?")）"))
             }
+            let at = now()
             if let fp = fetched.credentialFingerprint {
                 if let prev = fingerprintOwner[fp], prev != key {
-                    liveByTarget[t.id] = nil
-                    return Report(target: t, owner: before, outcome: .skipped("認証情報がまだ \(prev.account) のもの（切り替え途中）"))
+                    // 同じ認証情報が別の持ち主を名乗った。切り替え途中かもしれないので一旦見送り、
+                    // しばらくしても同じ組み合わせなら新しい持ち主を正とする（書き込み順に依存しない）
+                    guard let c = conflicts[fp], c.owner == key,
+                          at.timeIntervalSince(c.since) >= Self.conflictSettle else {
+                        if conflicts[fp]?.owner != key { conflicts[fp] = (key, at) }
+                        liveByTarget[t.id] = nil
+                        return Report(target: t, owner: before,
+                                      outcome: .skipped("認証情報が \(prev.account) のものとして記録済み（切り替え途中の可能性）"))
+                    }
+                    // 前の持ち主に記録したのは実はこのアカウントの値だった → 取り消す
+                    if latestFingerprint[prev] == fp {
+                        log.retractLatest(of: prev)
+                        latestFingerprint[prev] = nil
+                    }
+                    conflicts[fp] = nil
                 }
                 fingerprintOwner[fp] = key
+                latestFingerprint[key] = fp
             }
 
-            let batch = ObservationBatch(account: key, observedAt: now(), source: t.description,
+            let batch = ObservationBatch(account: key, observedAt: at, source: t.description,
                                          windows: fetched.windows)
             log.record(batch)
             liveByTarget[t.id] = key
