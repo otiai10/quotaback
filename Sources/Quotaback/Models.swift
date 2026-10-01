@@ -47,16 +47,32 @@ struct AppConfig: Codable {
 
 /// 利用上限の1つの枠 (5時間枠・週次枠など)
 struct UsageWindow: Identifiable, Hashable {
-    let key: String          // APIレスポンスのキー名 (five_hour, seven_day, ...)
+    let key: String          // 一意キー (limits[].kind + scope、または旧形式のトップレベルキー名)
+    let title: String
     let utilization: Double  // 0–100 (%)
     let resetsAt: Date?
+    /// プランの利用上限 (メニューバーのピーク値計算の対象)
+    let isLimit: Bool
+    var detail: String? = nil  // 例: "$57.97 / $200.00"
 
     var id: String { key }
 
-    /// プランの利用上限 (メニューバーのピーク値計算の対象)
-    var isLimit: Bool { key == "five_hour" || key.hasPrefix("seven_day") }
+    init(key: String, title: String, utilization: Double, resetsAt: Date?, isLimit: Bool, detail: String? = nil) {
+        self.key = key
+        self.title = title
+        self.utilization = utilization
+        self.resetsAt = resetsAt
+        self.isLimit = isLimit
+        self.detail = detail
+    }
 
-    var title: String {
+    /// 旧形式 (トップレベルの five_hour / seven_day* など) のキー名から組み立てる
+    init(key: String, utilization: Double, resetsAt: Date?) {
+        self.init(key: key, title: Self.legacyTitle(key), utilization: utilization, resetsAt: resetsAt,
+                  isLimit: key == "five_hour" || key.hasPrefix("seven_day"))
+    }
+
+    static func legacyTitle(_ key: String) -> String {
         switch key {
         case "five_hour": return "Current session"
         case "seven_day": return "Current week (all models)"

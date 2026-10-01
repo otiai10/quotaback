@@ -134,6 +134,11 @@ struct WindowRow: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(color)
             }
+            if let detail = window.detail {
+                Text(detail)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             ProgressView(value: min(window.utilization, 100), total: 100)
                 .tint(color)
             if let r = window.resetsAt {

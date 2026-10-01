@@ -28,26 +28,33 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - `UsageStore.swift` 定期更新（既定 300 秒、最短 60 秒）とメニューバー文字列
 - `App.swift` UI（ログイン時起動トグル含む）
 - `Main.swift` エントリポイント。`--once` で UI なしの1回取得（動作確認用）
-- `Tests/QuotabackTests` パーサー・表示ラベルのテスト（サンプルは推測形式。実レスポンスで差し替えること）
+- `Tests/QuotabackTests` パーサー・表示ラベルのテスト（`limits` 形式は実レスポンス準拠、credits あり・旧形式は想定）
 - `scripts/bundle.sh` release ビルド → `dist/Quotaback.app`（LSUIElement、ad-hoc 署名）
 
-## 未検証事項（最初にやること）
-ビルドは通るが、**まだ一度も実行していない**（Keychain とトークンの読み取りはユーザー側で実行する必要がある）。
+## API・認証の確認状況（2026-10-01）
+個人アカウント (P) で `--once` が成功し、以下は**確認済み**：
+- エンドポイント `GET https://api.anthropic.com/api/oauth/usage`、ヘッダー `anthropic-beta: oauth-2025-04-20`
+- Keychain service 名 `Claude Code-credentials`、中身 `{"claudeAiOauth": {"accessToken", "expiresAt"(ms), ...}}`
+- レスポンスの `limits` 配列が `/usage` の表示項目そのもの。`{kind, group, percent, severity, resets_at, scope, is_active}`
+  - `kind`: `session` / `weekly_all` / `weekly_scoped`（`scope.model.display_name` にモデル名、例 "Fable"）
+  - `group`: `session` / `weekly` → メニューバーのピーク値対象
+  - トップレベルの `five_hour` / `seven_day` も残っているが、モデル別の週次枠（`seven_day_opus` 等）は `null` で、Fable 枠は `limits` にしか出ない
+- Usage credits は `spend`（`used` / `limit` が `{amount_minor, currency, exponent}`）。`extra_usage.utilization` は `null`
+- パーサーは `limits` 優先、無ければ旧方式（`utilization` を持つトップレベルのオブジェクトを拾う）にフォールバック。`spend.limit` が 0 なら credits 行は出さない
 
-データ取得部分はすべて推測ベース：
-- エンドポイント `GET https://api.anthropic.com/api/oauth/usage`、ヘッダー `anthropic-beta: oauth-2025-04-20` — Claude Code 内部の非公開 API。記憶ベースで未確認
-- Keychain service 名 `Claude Code-credentials`、中身は `{"claudeAiOauth": {"accessToken", "expiresAt"(ms), ...}}` を想定
-- 仕事用アカウントの Keychain エントリ名は未調査（`security dump-keychain | grep '"svce"' | grep -i claude` で確認）
-- レスポンスは `{ "five_hour": {"utilization": 12.0, "resets_at": "..."}, "seven_day": {...}, ... }` のような形を想定。パーサーは `utilization` を持つオブジェクトを全部拾う緩い実装
-- 実レスポンスは `~/.config/quotaback/last-response-<label>.json` に保存されるので、それを見てパーサーとラベル（`UsageWindow.title`）を合わせること
+未確認：
+- 仕事用アカウント (W) の Keychain service 名（`security dump-keychain | grep '"svce"' | grep -i claude` で確認）
+- `spend.limit > 0` の実レスポンス（テストは想定形式）
+- 実レスポンスは `~/.config/quotaback/last-response-<label>.json` に保存される。形式が変わったらこれを見て `UsageClient.parse` を直す
 
-参考：ユーザーの `/usage` 表示には「Current session」「Current week (all models)」「Current week (Fable)」「Usage credits ($57.97 / $200.00)」が出ている（個人アカウント）。仕事用は Usage credits なし。
+メモ：2026-10-01 のユーザーの `/usage` 表示は Current session 17% / Current week (all models) 59% / Current week (Fable) 20% / Usage credits「$0.00 / $0.00 spent · 100% used · Resets Nov 1」で、API の `limits` / `spend` と一致（以前の「$57.97 / $200.00」は古い情報）。
+`/usage` は上限 $0 でも credits 行を 100% で出すが、Quotaback では意味がないので上限 0 のときは出さない。credits のリセット日はレスポンスに見当たらない。仕事用は Usage credits なし。
 
 ## 設計上の決定（変えるならユーザーに確認）
 - **トークンのリフレッシュをしない。** refresh token がローテーションされると Claude Code 側のログインが壊れる恐れがあるため、読み取り専用。期限切れはエラー表示し、ユーザーがそのアカウントで `claude` を起動して更新する
 - Keychain は `SecItemCopyMatching` ではなく `/usr/bin/security` 経由で読む（他アプリのアイテムの ACL を扱いやすいため）
 - 取得失敗時は前回値を残す
-- メニューバーには各アカウントの上限枠（five_hour / seven_day*）の最大値のみを出す。`extra_usage` 等は詳細パネルにだけ出す
+- メニューバーには各アカウントの上限枠（`limits` の group が session / weekly のもの）の最大値のみを出す。Usage credits は詳細パネルにだけ出す
 
 ## 今後のアイデア（未着手）
 - WidgetKit のデスクトップウィジェット（サンドボックスのため App Group 経由のデータ受け渡しが必要）

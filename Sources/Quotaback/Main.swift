@@ -23,7 +23,8 @@ enum Main {
                     if windows.isEmpty { print("  (枠なし: last-response-\(account.label).json を確認)") }
                     for w in windows {
                         let reset = w.resetsAt.map { " resets \($0.formatted())" } ?? ""
-                        print("  \(w.title) [\(w.key)]: \(Int(w.utilization.rounded()))%\(reset)")
+                        let detail = w.detail.map { " (\($0))" } ?? ""
+                        print("  \(w.title) [\(w.key)]: \(Int(w.utilization.rounded()))%\(detail)\(reset)")
                     }
                 } catch {
                     failed = true
