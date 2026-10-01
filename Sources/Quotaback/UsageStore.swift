@@ -29,7 +29,7 @@ final class UsageStore: ObservableObject {
     /// 切り替え途中で見送ったときの取り直し（秒後）。2回目は取り違え判定が確定する時間の後
     static let retryDelays: [TimeInterval] = [5, UsageEngine.conflictSettle + 5]
     /// パネルを開いたとき、直近の取得がこれより古ければ取り直す
-    static let staleOnOpen: TimeInterval = 60
+    static let staleOnOpen: TimeInterval = 15
 
     init() {
         config = AppConfig.load()
