@@ -52,7 +52,8 @@ enum CodexRolloutReader {
     }
 
     /// 枠は primary / secondary の位置ではなく長さで区別する（プランや版で入れ替わるため）
-    static func window(minutes: Int?, slot: String, percent: Double, resetsAt: Date?) -> WindowObservation {
+    static func window(minutes raw: Int?, slot: String, percent: Double, resetsAt: Date?) -> WindowObservation {
+        let minutes = raw.map(normalize)
         let key = minutes.map { "window_\($0)m" } ?? slot
         let title: String
         let cadence: Cadence
@@ -72,6 +73,12 @@ enum CodexRolloutReader {
         }
         return WindowObservation(key: key, title: title, percent: percent, resetsAt: resetsAt,
                                  isLimit: true, detail: nil, cadence: cadence)
+    }
+
+    /// 2025年10月ごろの版は 299 / 10079 のように1分短く書いていたので、5h / 週に寄せる
+    static func normalize(_ minutes: Int) -> Int {
+        for known in [300, 10080] where abs(minutes - known) <= 2 { return known }
+        return minutes
     }
 
     /// `sessions/YYYY/MM/DD/rollout-*.jsonl` を新しい順に。日付ディレクトリは名前順で新しいものから辿る

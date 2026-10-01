@@ -81,6 +81,17 @@ final class CodexTests: XCTestCase {
         XCTAssertTrue(e.windows.allSatisfy(\.isLimit))
     }
 
+    func testParseNormalizesOffByOneWindowLengths() throws {
+        // 2025年10月ごろの版の実際の値
+        let line = tokenCount("2025-10-20T00:00:00Z",
+                              primary: #"{"used_percent":10,"window_minutes":299,"resets_in_seconds":60}"#,
+                              secondary: #"{"used_percent":20,"window_minutes":10079,"resets_in_seconds":60}"#)
+        let e = try XCTUnwrap(CodexRolloutReader.parse(line: Data(line.utf8)))
+        XCTAssertEqual(e.windows.map(\.key), ["window_300m", "window_10080m"])
+        XCTAssertEqual(e.windows.map(\.title), ["5h limit", "Weekly limit"])
+        XCTAssertEqual(CodexRolloutReader.normalize(1440), 1440, "知らない長さはそのまま")
+    }
+
     func testParseIgnoresLinesWithoutLimits() {
         XCTAssertNil(CodexRolloutReader.parse(line: Data(tokenCount("2026-10-01T00:00:00Z", primary: "null").utf8)))
         XCTAssertNil(CodexRolloutReader.parse(line: Data(#"{"timestamp":"2026-10-01T00:00:00Z","payload":{"type":"agent_message"}}"#.utf8)))

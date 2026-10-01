@@ -65,7 +65,8 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - `~/.codex/auth.json` のキー: `OPENAI_API_KEY`, `auth_mode`, `last_refresh`, `tokens{access_token, account_id, id_token, refresh_token}`
 - セッションログ `token_count` イベントの `rate_limits`: `{limit_id:"codex", primary:{used_percent, window_minutes:10080, resets_at(epoch)}, secondary:null, credits:{has_credits, unlimited, balance}, plan_type:"pro", ...}`。このアカウント（pro）では週次枠だけで、5h 枠は出ていない
 - `--once` で `Codex ~/.codex → <メール>`、Weekly limit 3%（10/1 18:26 の記録）を確認
-- 未確認：5h 枠（`window_minutes: 300`）が出るプランでの実データ、`credits.balance` の単位（表示していない）、`limit_id` が `codex` 以外になるケース
+- ログの履歴（約300ファイル）: 2025/10/16〜10/30 は primary 299 / secondary 10079、〜2026/07/04 は primary 300 / secondary 10080、2026/07/14 以降は primary 10080 / secondary null（週次のみ）。1分ずれた旧値は 300 / 10080 に寄せている（`CodexRolloutReader.normalize`）
+- 未確認：`credits.balance` の単位（表示していない）、`limit_id` が `codex` 以外になるケース
 
 ## API・認証の確認状況（2026-10-01）
 `--once` で既定の Keychain エントリから取得が成功し、以下は**確認済み**：
