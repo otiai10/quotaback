@@ -28,7 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.target = self
-        statusItem.button?.action = #selector(togglePopover)
+        statusItem.button?.action = #selector(statusItemClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         titleSubscription = store.$accounts.receive(on: RunLoop.main).sink { [weak self] _ in
             Task { @MainActor in self?.updateTitle() }
         }
@@ -42,7 +43,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)])
     }
 
-    @objc private func togglePopover() {
+    /// 左クリックでパネル、右クリック（または control＋クリック）でメニュー
+    @objc private func statusItemClicked() {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            showMenu()
+        } else {
+            togglePopover()
+        }
+    }
+
+    private func showMenu() {
+        popover.performClose(nil)
+        let menu = NSMenu()
+        let refresh = NSMenuItem(title: "更新", action: #selector(refreshNow), keyEquivalent: "r")
+        refresh.target = self
+        refresh.isEnabled = !store.refreshing
+        menu.addItem(refresh)
+        if LoginItem.isAvailable {
+            let login = NSMenuItem(title: "ログイン時に起動", action: #selector(toggleLoginItem), keyEquivalent: "")
+            login.target = self
+            login.state = LoginItem.isEnabled ? .on : .off
+            menu.addItem(login)
+        }
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "終了", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        // メニューを一時的に割り当ててクリックさせるのが、ステータス項目の下にメニューを出す定番の方法
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
+    }
+
+    @objc private func refreshNow() {
+        store.refreshAll()
+    }
+
+    @objc private func toggleLoginItem() {
+        do {
+            try LoginItem.set(!LoginItem.isEnabled)
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.messageText = "ログイン時に起動を切り替えられませんでした"
+            alert.runModal()
+        }
+    }
+
+    private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
@@ -99,20 +145,19 @@ struct UsagePanel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
-            HStack {
-                Button("更新") { store.refreshAll() }
-                    .disabled(store.refreshing)
+            // 更新・ログイン時に起動・終了はメニューバーの項目の右クリックメニューにある
+            HStack(spacing: 6) {
+                if let t = store.accounts.filter(\.isLive).compactMap(\.observedAt).max() {
+                    Text("取得: \(t.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                if store.refreshing { ProgressView().controlSize(.mini) }
+                Spacer()
                 Button("設定を開く") {
                     NSWorkspace.shared.open(AppConfig.path)
                 }
-                Button("設定を再読込") { store.reloadConfig() }
-                Spacer()
-                if store.refreshing { ProgressView().controlSize(.mini) }
-                Button("終了") { NSApp.terminate(nil) }
-            }
-            .controlSize(.small)
-            if LoginItem.isAvailable {
-                LoginItemToggle()
+                .controlSize(.small)
             }
         }
         .padding(14)
@@ -133,33 +178,6 @@ enum LoginItem {
     static func set(_ enabled: Bool) throws {
         if enabled { try SMAppService.mainApp.register() }
         else { try SMAppService.mainApp.unregister() }
-    }
-}
-
-struct LoginItemToggle: View {
-    @State private var enabled = LoginItem.isEnabled
-    @State private var error: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Toggle("ログイン時に起動", isOn: Binding(
-                get: { enabled },
-                set: { newValue in
-                    do {
-                        try LoginItem.set(newValue)
-                        error = nil
-                    } catch {
-                        self.error = error.localizedDescription
-                    }
-                    enabled = LoginItem.isEnabled
-                }
-            ))
-            .toggleStyle(.checkbox)
-            .controlSize(.small)
-            if let error {
-                Text(error).font(.caption).foregroundStyle(.red)
-            }
-        }
     }
 }
 
@@ -187,11 +205,11 @@ struct AccountSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if expanded {
-                if let t = account.observedAt {
+                if let t = account.observedAt, !account.isLive {
                     Text(observedText(t))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                } else if account.error == nil {
+                } else if account.observedAt == nil, account.error == nil {
                     Text("まだ観測していません（このアカウントで claude にログインすると取得されます）")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -227,7 +245,6 @@ struct AccountSection: View {
 
     private func observedText(_ t: Date) -> String {
         let time = t.formatted(date: Calendar.current.isDateInToday(t) ? .omitted : .abbreviated, time: .shortened)
-        if account.isLive { return "取得: \(time)" }
         let ago = RelativeDateTimeFormatter().localizedString(for: t, relativeTo: Date())
         return "最終観測: \(time)（\(ago)）· 以降の使用は含まない下限値"
     }
@@ -254,15 +271,26 @@ struct WindowRow: View {
             }
             ProgressView(value: min(estimate.lowerBound, 100), total: 100)
                 .tint(color)
-            if let reset = resetText {
-                Text(reset)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if let eta = estimate.limitETA {
-                Text("このペースだと \(Self.resetFormatter.string(from: eta)) 頃に上限")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
+            if resetText != nil || estimate.limitETA != nil {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let reset = resetText {
+                        Text(reset)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    if let eta = estimate.limitETA {
+                        // このペースで使い続けたら上限に達する見込みの時刻
+                        Label("\(Self.resetFormatter.string(from: eta)) 頃に上限", systemImage: "exclamationmark.triangle.fill")
+                            .labelStyle(.titleAndIcon)
+                            .font(.caption2.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                            .help("このペースで使い続けた場合の見込み")
+                    }
+                }
             }
         }
     }

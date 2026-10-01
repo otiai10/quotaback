@@ -10,7 +10,7 @@
 1. ~~`swift build` を通す~~ ✅ 済（Apple Swift 6.4 / macOS 27 で無修正でビルド成功。zip の `Quotaback/` をリポジトリ直下に展開済み）
 2. ~~Keychain からトークンを読めるか確認~~ ✅ 既定エントリで成功。仕事用の別エントリは存在しない → 持ち主を実行時判定する設計に変更（下記「アカウントと置き場所」）
 3. ~~実レスポンスを見てパーサーと表示ラベルを合わせる~~ ✅ 済
-4. ~~`.app` バンドル化とログイン時自動起動~~ ✅ 実装済み（`scripts/bundle.sh`、パネルの「ログイン時に起動」トグル）。実機での SMAppService 登録は未確認
+4. ~~`.app` バンドル化とログイン時自動起動~~ ✅ 実装済み（`scripts/bundle.sh`、メニューバーの項目の右クリックメニューの「ログイン時に起動」）。実機での SMAppService 登録は未確認
 5. ~~観測と推定の仕組み~~ ✅ 実装済み（下記「観測と推定」）
 6. ~~`--once` で持ち主が正しく出るか確認~~ ✅ 既定エントリ → W を確認
 7. ~~`/login` で P に切り替えて観測~~ ✅ アプリが切り替えを自動検知して P を記録、W は `≥` の下限表示になることを確認（2026-10-01 16:40）
@@ -41,8 +41,8 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - `UsageClient.swift` usage API 呼び出しとレスポンス解析（`UsageWindow`）
 - `Models.swift` 設定（`~/.config/quotaback/config.json`）。`AccountConfig.provider` は省略時 "claude"
 - `Core/ActivityLog.swift` `activity.log` に切り替え検知と取得結果を追記（トークンは書かない）。テストでは `ActivityLog.url` を一時ディレクトリに向けること
-- `UsageStore.swift` UI 用。5分ごとの全取得、2秒ごとの切り替え検知（mtime が変わったときだけ `.claude.json` を読む。検知したら1秒待って取得、見送られたら5秒後と35秒後に取り直し）、パネルを開いたときの確認（直近の取得から15秒以上なら取得）、15秒ごとの推定値の再計算、`config.json` の変更の自動反映（ディレクトリを DispatchSource で監視 + 15秒ごとの mtime 確認。壊れた JSON は無視して前の設定を維持）
-- `App.swift` `AppDelegate`（ステータス項目とポップオーバー）と UI（ログイン時起動トグル含む）。`Main.swift` から `NSApplication.run()` で起動
+- `UsageStore.swift` UI 用。5分ごとの全取得（置き場所もこのとき探し直す）、2秒ごとの切り替え検知（mtime が変わったときだけ `.claude.json` を読む。検知したら1秒待って取得、見送られたら5秒後と35秒後に取り直し）、パネルを開いたときの確認（直近の取得から15秒以上なら取得）、15秒ごとの推定値の再計算、`config.json` の変更の自動反映（ディレクトリを DispatchSource で監視 + 15秒ごとの mtime 確認。壊れた JSON は無視して前の設定を維持）
+- `App.swift` `AppDelegate`（ステータス項目とポップオーバー、右クリックメニュー「更新 / ログイン時に起動 / 終了」）と UI。パネルのフッターは取得時刻と「設定を開く」だけ。`Main.swift` から `NSApplication.run()` で起動
 - `Main.swift` エントリポイント。`--once` でアプリと同じ経路で1回観測・記録して結果と推定を表示
 - `Tests/QuotabackTests` パーサー、認証情報、推定、保存、エンジン（取り違え防止・切り替え検知）のテスト
 - `scripts/bundle.sh` release ビルド → `dist/Quotaback.app`（LSUIElement、ad-hoc 署名）
@@ -85,7 +85,6 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 
 ## 既知の小さな問題
 - ログイン中のアカウントで、リセット時刻を過ぎてから次の取得までの間は「ログイン中」なのに「リセット済み」と出る
-- 置き場所の自動検出は起動時と「設定を再読込」のときだけ
 - `--once` の記録は、起動中のアプリが自分の保存で上書きすることがある
 - 実レスポンスは `~/.config/quotaback/last-response-<email>.json` に保存される。形式が変わったらこれを見て `UsageClient.parse` を直す
 
