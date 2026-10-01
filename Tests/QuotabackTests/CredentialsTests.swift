@@ -15,8 +15,8 @@ final class CredentialsTests: XCTestCase {
     }
 
     func testEmailFromProfile() {
-        let json = #"{"numStartups": 3, "oauthAccount": {"emailAddress": "work@example.com", "organizationName": "x"}}"#
-        XCTAssertEqual(CredentialSource.email(fromProfile: Data(json.utf8)), "work@example.com")
+        let json = #"{"numStartups": 3, "oauthAccount": {"emailAddress": "Work.User@Example.COM", "organizationName": "x"}}"#
+        XCTAssertEqual(CredentialSource.email(fromProfile: Data(json.utf8)), "work.user@example.com")
         XCTAssertNil(CredentialSource.email(fromProfile: Data(#"{"numStartups": 3}"#.utf8)))
         XCTAssertNil(CredentialSource.email(fromProfile: Data("not json".utf8)))
     }

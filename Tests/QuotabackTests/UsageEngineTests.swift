@@ -132,7 +132,7 @@ final class UsageEngineTests: XCTestCase {
 
         let views = await e.accountViews(config: accounts, now: t0 + 2)
         XCTAssertEqual(views.count, 4)
-        XCTAssertEqual(views.dropFirst(2).map(\.label), ["?", "?"])
+        XCTAssertEqual(views.dropFirst(2).map(\.label).sorted(), ["?", "X"], "持ち主不明は ?、設定に無いアカウントは頭文字")
     }
 
     func testChangedTargetsDetectsLoginSwitch() async throws {

@@ -29,7 +29,7 @@ Xcode で開く場合は `open Package.swift`。
 
 ## 設定
 
-初回起動で `~/.config/quotaback/config.json` が作られます。表示したいアカウントをメールアドレスで並べるだけ：
+初回起動で `~/.config/quotaback/config.json` が作られます。表示したいアカウントをメールアドレスで並べるだけ（空のままでも、観測できたアカウントはメールの頭文字をラベルにして出ます）：
 
 ```json
 {

@@ -18,8 +18,10 @@
 ## 目的
 Claude Code の `/usage` に出る「利用上限の消費率」を、**2つのサブスクリプションアカウント分**、macOS のメニューバーに常時表示する。
 
-- P: personal@example.com（個人）
-- W: work@example.com（仕事）
+- P: 個人アカウント
+- W: 仕事用アカウント
+
+（実際のメールアドレスは `~/.config/quotaback/config.json` にだけ書く。リポジトリは public なので、コード・ドキュメント・テストには入れない）
 
 スコープは `/usage` の上限表示のみ（Current session / Current week (all models) / Current week (<model>) / Usage credits）。トークン量やコスト集計は対象外。
 
@@ -69,7 +71,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   → 2アカウントは `/login` で1つのログインを切り替えて使っている可能性が高い。その場合、同時に取れるのはログイン中の1アカウントのみ
 - そのため「置き場所の持ち主は実行時に `.claude.json` の `oauthAccount.emailAddress` で判定」「アカウントごとの最後の観測を保存して表示」という設計にした。設定のラベルは信用しない
 - 最初の `--once` で `[P]` と表示していた値は、ラベルを信じていたため。実際の持ち主は仕事用（W）だった（下記で確認）
-- **確認済み（2026-10-01 15:50）**: `--once` で `Keychain 'Claude Code-credentials' → work@example.com`。`~/.claude.json` の `oauthAccount.emailAddress` で持ち主が取れること、既定エントリが W のものであることを確認。`latest.json` への記録も確認
+- **確認済み（2026-10-01 15:50）**: `--once` で `Keychain 'Claude Code-credentials' → <W のメール>`。`~/.claude.json` の `oauthAccount.emailAddress` で持ち主が取れること、既定エントリが W のものであることを確認。`latest.json` への記録も確認
 
 未確認：
 - P（個人）はまだ一度も観測していない（`/login` で P に切り替えて観測する必要がある）

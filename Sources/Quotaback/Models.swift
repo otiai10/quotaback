@@ -26,10 +26,8 @@ struct AppConfig: Codable, Equatable {
 
     static let fallback = AppConfig(
         refreshSeconds: 300,
-        accounts: [
-            AccountConfig(label: "P", name: "personal@example.com"),
-            AccountConfig(label: "W", name: "work@example.com"),
-        ]
+        // 空でも、観測できたアカウントはメールの頭文字をラベルにして表示される
+        accounts: []
     )
 
     /// 設定ファイルを読む。無ければデフォルトを書き出してそれを返す。

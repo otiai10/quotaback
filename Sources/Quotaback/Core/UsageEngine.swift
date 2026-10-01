@@ -116,6 +116,12 @@ actor UsageEngine {
 
     // MARK: - Views
 
+    /// 設定に無いアカウントのラベル。メールの頭文字、持ち主不明なら "?"
+    static func defaultLabel(for key: AccountKey) -> String {
+        guard !key.account.hasPrefix("?"), let c = key.account.first else { return "?" }
+        return String(c).uppercased()
+    }
+
     /// 表示用。設定にあるアカウント（順序どおり）＋観測やエラーで見つかったアカウント
     func accountViews(config: [AccountConfig], now: Date = Date()) -> [AccountView] {
         let live = Set(liveByTarget.values)
@@ -135,7 +141,7 @@ actor UsageEngine {
                                    history: log.points(account: key, window: w), now: now)
             }
             return AccountView(key: key,
-                               label: cfg?.label ?? "?",
+                               label: cfg?.label ?? Self.defaultLabel(for: key),
                                name: cfg?.name ?? key.account,
                                isLive: isLive,
                                observedAt: batch?.observedAt,
