@@ -13,7 +13,7 @@
 4. ~~`.app` バンドル化とログイン時自動起動~~ ✅ 実装済み（`scripts/bundle.sh`、パネルの「ログイン時に起動」トグル）。実機での SMAppService 登録は未確認
 5. ~~観測と推定の仕組み~~ ✅ 実装済み（下記「観測と推定」）
 6. ~~`--once` で持ち主が正しく出るか確認~~ ✅ 既定エントリ → W を確認
-7. **次**: `/login` で P に切り替えて一度観測し（`--once` またはアプリの自動検知）、P の値が `latest.json` に残ること・W が `≥` 表示になることを確認
+7. ~~`/login` で P に切り替えて観測~~ ✅ アプリが切り替えを自動検知して P を記録、W は `≥` の下限表示になることを確認（2026-10-01 16:40）
 
 ## 目的
 Claude Code の `/usage` に出る「利用上限の消費率」を、**2つのサブスクリプションアカウント分**、macOS のメニューバーに常時表示する。
@@ -64,7 +64,9 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - トップレベルの `five_hour` / `seven_day` も残っているが、モデル別の週次枠（`seven_day_opus` 等）は `null` で、Fable 枠は `limits` にしか出ない
 - Usage credits は `spend`（`used` / `limit` が `{amount_minor, currency, exponent}`）。`extra_usage.utilization` は `null`
 - パーサーは `limits` 優先、無ければ旧方式（`utilization` を持つトップレベルのオブジェクトを拾う）にフォールバック。`spend.limit` が 0 なら credits 行は出さない
-- ユーザーの `/usage` 表示（Current session / Current week (all models) / Current week (Fable) / Usage credits $0.00 / $0.00）と一致。以前のメモにあった「$57.97 / $200.00」は古い情報。`/usage` は上限 $0 でも credits 行を 100% で出すが Quotaback では出さない
+- `resets_at` は取得のたびに秒未満〜1秒前後する（`01:59:59.59` / `02:00:00.19`）。パース時に最も近い分に丸めている
+- 最初の頃に「P の値」として見ていたレスポンス（`spend.limit` = 0）は実は W のもの。P は `spend.limit` = $200.00（20000 minor）で、パネルに「$0.00 / $200.00」と出ることを確認済み（2026-10-01）。当初メモの「$57.97 / $200.00」は P の以前の状態と思われる。W は Usage credits なし（limit 0 → 行を出さない）
+- P のセッション枠は未使用だと `resets_at: null`（使い始めてから決まる = rolling の裏付け）
 
 ### アカウントと置き場所
 - このマシンの Keychain にある Claude Code のエントリは `Claude Code-credentials` **1つだけ**（`Claude Safe Storage` はデスクトップアプリの暗号化キーで無関係）。
@@ -74,9 +76,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - **確認済み（2026-10-01 15:50）**: `--once` で `Keychain 'Claude Code-credentials' → <W のメール>`。`~/.claude.json` の `oauthAccount.emailAddress` で持ち主が取れること、既定エントリが W のものであることを確認。`latest.json` への記録も確認
 
 未確認：
-- P（個人）はまだ一度も観測していない（`/login` で P に切り替えて観測する必要がある）
 - `CLAUDE_CONFIG_DIR` 別の Keychain エントリ名（`Claude Code-credentials-<hash>` と思われるが未確認。必要なら `sources` で明示）
-- `spend.limit > 0` の実レスポンス（テストは想定形式）
 - 週次枠が本当に 7 日周期でずれずに続くか（projected の前提）。セッション枠を rolling とみなしている点も挙動からの推測
 - `/login` で `.claude.json` と Keychain のどちらが先に書かれるか（どちらでも動くようにはしてある）
 

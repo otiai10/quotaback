@@ -68,6 +68,16 @@ final class UsageClientTests: XCTestCase {
         XCTAssertNil(windows[2].resetsAt)
     }
 
+    func testResetTimesRoundToNearestMinute() {
+        let a = UsageClient.parseDate("2026-10-05T19:59:59.845644+00:00")
+        let b = UsageClient.parseDate("2026-10-05T20:00:00+00:00")
+        let c = UsageClient.parseDate("2026-10-05T20:00:00.195640+00:00")
+        XCTAssertNotNil(a)
+        XCTAssertEqual(a, b)
+        XCTAssertEqual(b, c)
+        XCTAssertNil(UsageClient.parseDate(nil))
+    }
+
     func testParseRejectsNonObject() {
         XCTAssertThrowsError(try UsageClient.parse(Data("[]".utf8)))
     }

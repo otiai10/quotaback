@@ -139,13 +139,16 @@ enum UsageClient {
         }
     }
 
-    private static func parseDate(_ v: Any?) -> Date? {
+    /// resets_at は取得のたびに "01:59:59.59" / "02:00:00.19" のように前後するので、最も近い分に丸める
+    static func parseDate(_ v: Any?) -> Date? {
         guard let s = v as? String else { return nil }
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = f.date(from: s) { return d }
-        f.formatOptions = [.withInternetDateTime]
-        return f.date(from: s)
+        guard let d = f.date(from: s) ?? {
+            f.formatOptions = [.withInternetDateTime]
+            return f.date(from: s)
+        }() else { return nil }
+        return Date(timeIntervalSince1970: (d.timeIntervalSince1970 / 60).rounded() * 60)
     }
 }
 
