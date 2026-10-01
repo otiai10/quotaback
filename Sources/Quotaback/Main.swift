@@ -28,6 +28,7 @@ enum Main {
                 case .recorded(let b): print("  記録: \(b.windows.count) 枠")
                 case .skipped(let m): print("  スキップ: \(m)")
                 case .failed(let m): failed = true; print("  error: \(m)")
+                case .unchanged(let m): print("  新しい観測なし: \(m)")
                 }
             }
             print("\n== 推定（保存済みの観測を含む）")

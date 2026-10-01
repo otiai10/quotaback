@@ -17,6 +17,8 @@ actor UsageEngine {
     /// 食い違いを「本当の持ち主の変更」と認めるまでの時間。
     /// `/login` で持ち主の情報と認証情報のどちらが先に書かれても、この間に両方そろう想定
     static let conflictSettle: TimeInterval = 30
+    /// ログイン中のアカウントの値を「今の値（exact）」とみなせる観測からの経過時間
+    static let freshness: TimeInterval = 10 * 60
     /// 対象 → 前回確認した持ち主と判定元の更新時刻（切り替え検知用）
     private var knownOwner: [String: String?] = [:]
     private var knownStamp: [String: Date?] = [:]
@@ -30,12 +32,15 @@ actor UsageEngine {
         /// 取得はできたが、持ち主が確定できないので記録しなかった
         case skipped(String)
         case failed(String)
+        /// 持ち主は分かったが新しい観測が無かった
+        case unchanged(String)
 
         var summary: String {
             switch self {
             case .recorded(let b): return "recorded \(b.windows.map { "\($0.key)=\(Int($0.percent))" }.joined(separator: ","))"
             case .skipped(let m): return "skipped: \(m)"
             case .failed(let m): return "failed: \(m)"
+            case .unchanged(let m): return "unchanged: \(m)"
             }
         }
     }
@@ -99,12 +104,17 @@ actor UsageEngine {
                 latestFingerprint[key] = fp
             }
 
-            let batch = ObservationBatch(account: key, observedAt: at, source: t.description,
+            let batch = ObservationBatch(account: key, observedAt: fetched.asOf ?? at, source: t.description,
                                          windows: fetched.windows)
             log.record(batch)
             liveByTarget[t.id] = key
             errorByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .recorded(batch))
+        } catch UsageError.noObservation(let message) {
+            // ログインはしているが新しい値が無い。前回の観測は古いので下限として出る
+            liveByTarget[t.id] = key
+            errorByTarget[t.id] = nil
+            return Report(target: t, owner: before, outcome: .unchanged(message))
         } catch {
             liveByTarget[t.id] = nil
             errorByTarget[t.id] = (key, error.localizedDescription)
@@ -151,8 +161,10 @@ actor UsageEngine {
             let cfg = config.first { $0.key == key }
             let batch = log.latest[key]
             let isLive = live.contains(key)
+            // ログイン中でも、値そのものが古ければ（ログから読んだ過去の記録など）その後の使用は含まないので下限
+            let isFresh = isLive && batch.map { now.timeIntervalSince($0.observedAt) <= Self.freshness } ?? false
             let windows = (batch?.windows ?? []).map { w in
-                Estimator.estimate(w, observedAt: batch!.observedAt, isLive: isLive,
+                Estimator.estimate(w, observedAt: batch!.observedAt, isLive: isFresh,
                                    history: log.points(account: key, window: w), now: now)
             }
             return AccountView(key: key,
@@ -179,6 +191,14 @@ struct AccountView: Identifiable, Hashable {
 
     var id: String { key.id }
 
+    var providerName: String {
+        switch key.provider {
+        case ClaudeProvider.id: return "Claude"
+        case CodexProvider.id: return "Codex"
+        default: return key.provider.capitalized
+        }
+    }
+
     /// 代表の枠: 利用上限枠のうち一番埋まっているもの（メニューバーの % はこの枠の値）。
     /// 同じ値ならリセットが遠い方（回復に時間がかかる方が効く制約なので）
     var representative: WindowEstimate? {
@@ -194,7 +214,8 @@ struct AccountView: Identifiable, Hashable {
     var menuBarText: String {
         if let p = peak {
             let v = "\(Int(p.rounded()))%"
-            return isLive ? "\(label) \(v)" : "\(label) ≥\(v)"
+            if case .exact = representative?.value { return "\(label) \(v)" }
+            return "\(label) ≥\(v)"
         }
         return error != nil ? "\(label) !" : "\(label) –"
     }
