@@ -12,7 +12,8 @@
 3. ~~実レスポンスを見てパーサーと表示ラベルを合わせる~~ ✅ 済
 4. ~~`.app` バンドル化とログイン時自動起動~~ ✅ 実装済み（`scripts/bundle.sh`、パネルの「ログイン時に起動」トグル）。実機での SMAppService 登録は未確認
 5. ~~観測と推定の仕組み~~ ✅ 実装済み（下記「観測と推定」）
-6. **次**: `swift run Quotaback --once` で各置き場所の持ち主（`→ <email>`）が正しく出るか確認。もう一方のアカウントは `/login` で切り替えて `--once`（またはアプリ起動中なら自動検知）で一度観測すれば `latest.json` に残る
+6. ~~`--once` で持ち主が正しく出るか確認~~ ✅ 既定エントリ → W を確認
+7. **次**: `/login` で P に切り替えて一度観測し（`--once` またはアプリの自動検知）、P の値が `latest.json` に残ること・W が `≥` 表示になることを確認
 
 ## 目的
 Claude Code の `/usage` に出る「利用上限の消費率」を、**2つのサブスクリプションアカウント分**、macOS のメニューバーに常時表示する。
@@ -67,11 +68,11 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - このマシンの Keychain にある Claude Code のエントリは `Claude Code-credentials` **1つだけ**（`Claude Safe Storage` はデスクトップアプリの暗号化キーで無関係）。
   → 2アカウントは `/login` で1つのログインを切り替えて使っている可能性が高い。その場合、同時に取れるのはログイン中の1アカウントのみ
 - そのため「置き場所の持ち主は実行時に `.claude.json` の `oauthAccount.emailAddress` で判定」「アカウントごとの最後の観測を保存して表示」という設計にした。設定のラベルは信用しない
-- 最初の `--once` で `[P]` と表示していた値は、ラベルを信じていたため。実際の持ち主はおそらく仕事用（このセッションのログインが仕事用のため）
+- 最初の `--once` で `[P]` と表示していた値は、ラベルを信じていたため。実際の持ち主は仕事用（W）だった（下記で確認）
+- **確認済み（2026-10-01 15:50）**: `--once` で `Keychain 'Claude Code-credentials' → work@example.com`。`~/.claude.json` の `oauthAccount.emailAddress` で持ち主が取れること、既定エントリが W のものであることを確認。`latest.json` への記録も確認
 
 未確認：
-- `~/.claude.json` の `oauthAccount.emailAddress` で持ち主が取れるか（記憶ベース。`--once` の `→ <email>` 表示で確認）
-- 既定の Keychain エントリが P と W のどちらのものか（同上）
+- P（個人）はまだ一度も観測していない（`/login` で P に切り替えて観測する必要がある）
 - `CLAUDE_CONFIG_DIR` 別の Keychain エントリ名（`Claude Code-credentials-<hash>` と思われるが未確認。必要なら `sources` で明示）
 - `spend.limit > 0` の実レスポンス（テストは想定形式）
 - 週次枠が本当に 7 日周期でずれずに続くか（projected の前提）。セッション枠を rolling とみなしている点も挙動からの推測
