@@ -28,6 +28,37 @@ final class UsageEngineTests: XCTestCase {
     let accounts = [AccountConfig(label: "P", name: "p@example.com"),
                     AccountConfig(label: "W", name: "w@example.com")]
 
+    override func setUpWithError() throws {
+        ActivityLog.url = try tempDirectory().appendingPathComponent("activity.log")
+    }
+
+    func testActivityLogRecordsSwitchAndOutcome() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "w@example.com")
+        await e.refresh([f.target], reason: "start", now: { t0 })
+        f.stamp = t0 + 10; f.owner = "p@example.com"; f.token = "token-p"
+        _ = await e.changedTargets([f.target])
+        ActivityLog.flush()
+
+        let text = try String(contentsOf: ActivityLog.url, encoding: .utf8)
+        XCTAssertTrue(text.contains("refresh(start) Fake owner=w@example.com → recorded weekly_all=10"), text)
+        XCTAssertTrue(text.contains("switch Fake w@example.com → p@example.com"), text)
+        XCTAssertFalse(text.contains("token-"), "トークンは書かない")
+    }
+
+    func testActivityLogTrimsOldHalf() throws {
+        ActivityLog.url = try tempDirectory().appendingPathComponent("activity.log")
+        let line = String(repeating: "x", count: 99) + "\n"
+        try Data(String(repeating: line, count: ActivityLog.maxBytes / 100 + 10).utf8).write(to: ActivityLog.url)
+        ActivityLog.write("newest")
+        ActivityLog.flush()
+
+        let text = try String(contentsOf: ActivityLog.url, encoding: .utf8)
+        XCTAssertLessThan(text.utf8.count, ActivityLog.maxBytes)
+        XCTAssertTrue(text.hasSuffix("newest\n"))
+        XCTAssertTrue(text.hasPrefix("x"), "行の途中から始まらない")
+    }
+
     func engine() throws -> UsageEngine {
         UsageEngine(log: ObservationLog.load(directory: try tempDirectory(), now: t0))
     }

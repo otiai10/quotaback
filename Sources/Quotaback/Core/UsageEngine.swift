@@ -30,6 +30,14 @@ actor UsageEngine {
         /// 取得はできたが、持ち主が確定できないので記録しなかった
         case skipped(String)
         case failed(String)
+
+        var summary: String {
+            switch self {
+            case .recorded(let b): return "recorded \(b.windows.map { "\($0.key)=\(Int($0.percent))" }.joined(separator: ","))"
+            case .skipped(let m): return "skipped: \(m)"
+            case .failed(let m): return "failed: \(m)"
+            }
+        }
     }
 
     struct Report {
@@ -41,10 +49,13 @@ actor UsageEngine {
     // MARK: - Refresh
 
     @discardableResult
-    func refresh(_ targets: [PollTarget], now: @Sendable () -> Date = { Date() }) async -> [Report] {
+    func refresh(_ targets: [PollTarget], reason: String = "",
+                 now: @Sendable () -> Date = { Date() }) async -> [Report] {
         var reports: [Report] = []
         for t in targets {
-            reports.append(await refresh(t, now: now))
+            let r = await refresh(t, now: now)
+            ActivityLog.write("refresh\(reason.isEmpty ? "" : "(\(reason))") \(t.description) owner=\(r.owner ?? "?") → \(r.outcome.summary)")
+            reports.append(r)
         }
         return reports
     }
@@ -110,7 +121,11 @@ actor UsageEngine {
             let owner = t.owner()
             defer { knownOwner[t.id] = owner }
             guard let known = knownOwner[t.id] else { return true }
-            return known != owner
+            if known != owner {
+                ActivityLog.write("switch \(t.description) \(known ?? "?") → \(owner ?? "?")")
+                return true
+            }
+            return false
         }
     }
 

@@ -39,7 +39,8 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - `Credentials.swift` `CredentialSource`、置き場所の自動検出、持ち主の判定（`.claude.json` の `oauthAccount.emailAddress`）、トークン読み取りとハッシュ
   - `UsageClient.swift` usage API 呼び出しとレスポンス解析（`UsageWindow`）
 - `Models.swift` 設定（`~/.config/quotaback/config.json`）。`AccountConfig.provider` は省略時 "claude"
-- `UsageStore.swift` UI 用。5分ごとの全取得、15秒ごとの切り替え検知（検知したら3秒待って取得）と推定値の再計算、`config.json` の変更の自動反映（ディレクトリを DispatchSource で監視 + 15秒ごとの mtime 確認。壊れた JSON は無視して前の設定を維持）
+- `Core/ActivityLog.swift` `activity.log` に切り替え検知と取得結果を追記（トークンは書かない）。テストでは `ActivityLog.url` を一時ディレクトリに向けること
+- `UsageStore.swift` UI 用。5分ごとの全取得、2秒ごとの切り替え検知（mtime が変わったときだけ `.claude.json` を読む。検知したら1秒待って取得、見送られたら5秒後と35秒後に取り直し）、パネルを開いたときの確認（1分より古ければ取得）、15秒ごとの推定値の再計算、`config.json` の変更の自動反映（ディレクトリを DispatchSource で監視 + 15秒ごとの mtime 確認。壊れた JSON は無視して前の設定を維持）
 - `App.swift` UI（ログイン時起動トグル含む）
 - `Main.swift` エントリポイント。`--once` でアプリと同じ経路で1回観測・記録して結果と推定を表示
 - `Tests/QuotabackTests` パーサー、認証情報、推定、保存、エンジン（取り違え防止・切り替え検知）のテスト
@@ -51,7 +52,8 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - 次のリセット：時刻が未来なら known。過ぎたら fixed は周期を足して projected、monthly は月を足して projected、rolling（使い始めから数える）は unknown
 - 100% 到達見込み：同じリセット周期（resets_at は秒未満が揺れるので1分以内なら同じとみなす）の履歴の最初と最後を直線で結ぶ。幅10分以上・増加・リセット前に達するときだけ
 - 取り違え防止：`/login` では `.claude.json`（持ち主）と Keychain（トークン）が別々に更新されるので、(1) 取得後に持ち主を読み直して変わっていたら捨てる、(2) トークンのハッシュ → アカウントの対応をメモリに持ち、同じトークンが別の持ち主を名乗ったら一旦見送る。30秒以上たっても同じ組み合わせならそちらを正とし、前の持ち主に記録した最新バッチがそのトークン由来なら取り消す（`/login` の書き込み順に依存しないため）。見送ったら UsageStore が35秒後に最大2回取り直す。ハッシュもトークンも保存しない
-- 切り替え検知：`.claude.json` は Claude Code がアトミックに書き換えるので DispatchSource ではなく15秒ごとに mtime を見て、変わったときだけ持ち主を読み直す
+- 切り替え検知：`.claude.json` は Claude Code がアトミックに書き換えるので DispatchSource ではなく2秒ごとに mtime を見て、変わったときだけ持ち主を読み直す（約480KB）
+- 2026-10-01 の実例：`/login` の途中（16:38:56）に一度検知して W を取得、ログイン完了後は当時の15秒間隔＋3秒待ちが間に合わず、ユーザーが「更新」を押した（16:40:19）。これを受けて2秒間隔・1秒待ち・パネルを開いたときの確認・`activity.log` を追加
 - 複数プロバイダ：保存キーは `provider:account`、枠の周期は観測ごとに `Cadence` として持つ。プロバイダを足すときは `UsageProvider` を実装して `Providers.all` に入れる
 
 ## API・認証の確認状況（2026-10-01）

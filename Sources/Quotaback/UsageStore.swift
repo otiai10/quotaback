@@ -14,14 +14,22 @@ final class UsageStore: ObservableObject {
     private var targets: [PollTarget] = []
     private var refreshTimer: Timer?
     private var watchTimer: Timer?
+    private var switchTimer: Timer?
+    private var lastFetchAt: Date?
     private var pending = false
     private var configWatcher: DispatchSourceFileSystemObject?
     private var configStamp: Date?
 
-    /// ログイン切り替えの確認と、推定値の再計算（リセット時刻の通過など）の間隔
+    /// 推定値の再計算（リセット時刻の通過など）と config.json の確認の間隔
     static let watchInterval: TimeInterval = 15
+    /// ログイン切り替えの確認間隔。`.claude.json` の mtime を見るだけで、変わったときだけ中身を読む
+    static let switchCheckInterval: TimeInterval = 2
     /// 切り替えを検知してから取得するまでの待ち（認証情報の書き込みが追いつくのを待つ）
-    static let switchDebounce: UInt64 = 3_000_000_000
+    static let switchDebounce: UInt64 = 1_000_000_000
+    /// 切り替え途中で見送ったときの取り直し（秒後）。2回目は取り違え判定が確定する時間の後
+    static let retryDelays: [TimeInterval] = [5, UsageEngine.conflictSettle + 5]
+    /// パネルを開いたとき、直近の取得がこれより古ければ取り直す
+    static let staleOnOpen: TimeInterval = 60
 
     init() {
         config = AppConfig.load()
@@ -34,14 +42,28 @@ final class UsageStore: ObservableObject {
         targets = Providers.targets(config: config)
         refreshTimer?.invalidate()
         watchTimer?.invalidate()
+        switchTimer?.invalidate()
         Task { await updateViews() }
-        refreshAll()
+        refreshAll(reason: "start")
         let interval = TimeInterval(max(60, config.refreshSeconds))
         refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshAll() }
+            Task { @MainActor in self?.refreshAll(reason: "timer") }
         }
         watchTimer = Timer.scheduledTimer(withTimeInterval: Self.watchInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.watch() }
+        }
+        switchTimer = Timer.scheduledTimer(withTimeInterval: Self.switchCheckInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.checkSwitch() }
+        }
+    }
+
+    /// パネルを開いたとき。切り替えを今すぐ確認し、値が古ければ取り直す
+    func panelOpened() {
+        Task {
+            await checkSwitch(reason: "panel")
+            if lastFetchAt.map({ Date().timeIntervalSince($0) > Self.staleOnOpen }) ?? true {
+                refresh(targets, reason: "panel")
+            }
         }
     }
 
@@ -93,43 +115,46 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    func refreshAll() {
-        refresh(targets)
+    func refreshAll(reason: String = "manual") {
+        refresh(targets, reason: reason)
     }
 
-    /// - Parameter retries: 切り替え途中で見送られた対象を取り直す残り回数
-    private func refresh(_ list: [PollTarget], retries: Int = 2) {
+    /// - Parameter attempt: 切り替え途中で見送られた対象の取り直し回数
+    private func refresh(_ list: [PollTarget], reason: String, attempt: Int = 0) {
         guard !list.isEmpty else { return }
         // 取得中に呼ばれたら、終わってからもう一度まとめて取る
         guard !refreshing else { pending = true; return }
         refreshing = true
         Task {
-            let reports = await engine.refresh(list)
+            let reports = await engine.refresh(list, reason: reason)
+            lastFetchAt = Date()
             await updateViews()
             refreshing = false
             if pending {
                 pending = false
-                refreshAll()
+                refreshAll(reason: "pending")
             }
             let skipped = reports.compactMap { r -> PollTarget? in
                 if case .skipped = r.outcome { return r.target }
                 return nil
             }
-            if !skipped.isEmpty && retries > 0 {
-                try? await Task.sleep(nanoseconds: UInt64((UsageEngine.conflictSettle + 5) * 1_000_000_000))
-                refresh(skipped, retries: retries - 1)
+            if !skipped.isEmpty && attempt < Self.retryDelays.count {
+                try? await Task.sleep(nanoseconds: UInt64(Self.retryDelays[attempt] * 1_000_000_000))
+                refresh(skipped, reason: "retry", attempt: attempt + 1)
             }
         }
     }
 
     /// ログインが切り替わった対象だけすぐ取りに行く
+    private func checkSwitch(reason: String = "switch") async {
+        let changed = await engine.changedTargets(targets)
+        guard !changed.isEmpty else { return }
+        try? await Task.sleep(nanoseconds: Self.switchDebounce)
+        refresh(changed, reason: reason)
+    }
+
     private func watch() async {
         configMaybeChanged()
-        let changed = await engine.changedTargets(targets)
-        if !changed.isEmpty {
-            try? await Task.sleep(nanoseconds: Self.switchDebounce)
-            refresh(changed)
-        }
         await updateViews()
     }
 

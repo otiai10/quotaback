@@ -58,6 +58,7 @@ struct UsagePanel: View {
         }
         .padding(14)
         .frame(width: 340)
+        .onAppear { store.panelOpened() }
     }
 }
 
