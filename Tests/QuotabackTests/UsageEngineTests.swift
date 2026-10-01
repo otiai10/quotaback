@@ -7,6 +7,7 @@ final class FakeTarget: @unchecked Sendable {
     var stamp: Date?
     var token = "token-a"
     var percent: Double = 10
+    var asOf: Date?
     var ownerAfterFetch: String??   // 取得中に持ち主が変わる状況を再現
     var error: Error?
 
@@ -19,7 +20,8 @@ final class FakeTarget: @unchecked Sendable {
                        if let e = self.error { throw e }
                        if let o = self.ownerAfterFetch { self.owner = o }
                        return FetchedUsage(windows: [window(percent: self.percent, resetsAt: t0 + day)],
-                                           credentialFingerprint: CredentialSource.fingerprint(self.token))
+                                           credentialFingerprint: CredentialSource.fingerprint(self.token),
+                                           asOf: self.asOf)
                    })
     }
 }
@@ -205,6 +207,40 @@ final class UsageEngineTests: XCTestCase {
         let tieWeekly = est("weekly_all", 40, reset: t0 + 5 * day)
         XCTAssertEqual(view([tieSession, tieWeekly]).representative?.window.key, "weekly_all", "同値ならリセットが遠い方")
         XCTAssertNil(view([credits]).representative)
+    }
+
+    func testLiveButStaleValueIsLowerBound() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "p@example.com")
+        f.percent = 30
+        f.asOf = t0 - hour   // ログから読んだ1時間前の記録
+        await e.refresh([f.target], now: { t0 })
+
+        let p = await e.accountViews(config: accounts, now: t0)[0]
+        XCTAssertTrue(p.isLive, "ログイン中ではある")
+        XCTAssertEqual(p.observedAt, t0 - hour, "観測時刻は記録の時刻")
+        XCTAssertEqual(p.windows.first?.value, .atLeast(30))
+        XCTAssertEqual(p.menuBarText, "P ≥30%")
+
+        f.asOf = t0 - 60
+        await e.refresh([f.target], now: { t0 })
+        let fresh = await e.accountViews(config: accounts, now: t0)[0]
+        XCTAssertEqual(fresh.windows.first?.value, .exact(30), "10分以内の記録なら今の値とみなす")
+    }
+
+    func testNoObservationKeepsAccountLiveWithoutError() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "p@example.com")
+        f.percent = 30
+        await e.refresh([f.target], now: { t0 })
+        f.error = UsageError.noObservation("まだ記録なし")
+        let r = await e.refresh([f.target], now: { t0 + hour })
+        guard case .unchanged = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+
+        let p = await e.accountViews(config: accounts, now: t0 + hour)[0]
+        XCTAssertTrue(p.isLive)
+        XCTAssertNil(p.error)
+        XCTAssertEqual(p.windows.first?.value, .atLeast(30), "前回の観測は古いので下限")
     }
 
     func testResetTransitionsWithoutFetching() async throws {

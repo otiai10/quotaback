@@ -1,21 +1,5 @@
 import Foundation
 
-enum UsageError: LocalizedError {
-    case credentials(String)
-    case tokenExpired
-    case http(Int, String)
-    case parse(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .credentials(let m): return "認証情報を読めません: \(m)"
-        case .tokenExpired: return "トークン期限切れ（このアカウントで claude を一度起動すると更新されます）"
-        case .http(let code, let body): return "HTTP \(code): \(body.prefix(200))"
-        case .parse(let m): return "レスポンス解析失敗: \(m)"
-        }
-    }
-}
-
 enum UsageClient {
     static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     static let betaHeader = "oauth-2025-04-20"

@@ -67,19 +67,6 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// 「設定を再読込」。取得もやり直す
-    func reloadConfig() {
-        configStamp = AppConfig.modificationDate()
-        switch AppConfig.read() {
-        case .success(let new):
-            configError = nil
-            config = new
-            start()
-        case .failure(let error):
-            configError = "config.json を読めません（前の設定のまま）: \(error.localizedDescription)"
-        }
-    }
-
     // MARK: - config.json の変更を反映
 
     /// エディタの保存（一時ファイル → rename）でファイル自体の監視は外れるので、ディレクトリを監視する。
@@ -115,7 +102,9 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// 全対象を取得する。置き場所（`CLAUDE_CONFIG_DIR` の追加など）もここで探し直す
     func refreshAll(reason: String = "manual") {
+        targets = Providers.targets(config: config)
         refresh(targets, reason: reason)
     }
 
