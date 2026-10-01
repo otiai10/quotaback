@@ -26,11 +26,20 @@ struct QuotabackApp: App {
 
 struct UsagePanel: View {
     @ObservedObject var store: UsageStore
+    /// 開閉を手で切り替えたアカウントだけ記録する。未指定ならログイン中は開き、未ログインは畳む
+    @State private var expandedOverride: [String: Bool] = [:]
+
+    private func expandedBinding(for account: AccountView) -> Binding<Bool> {
+        Binding(
+            get: { expandedOverride[account.id] ?? account.isLive },
+            set: { expandedOverride[account.id] = $0 }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(store.accounts) { account in
-                AccountSection(account: account)
+                AccountSection(account: account, expanded: expandedBinding(for: account))
                 if account != store.accounts.last { Divider() }
             }
             if let err = store.configError {
@@ -102,19 +111,16 @@ struct LoginItemToggle: View {
 
 struct AccountSection: View {
     let account: AccountView
+    @Binding var expanded: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(account.name).font(.headline)
-                Spacer()
-                Text(account.isLive ? "ログイン中" : "未ログイン")
-                    .font(.caption2)
-                    .foregroundStyle(account.isLive ? Color.green : Color.secondary)
-            }
+            header
 
-            ForEach(account.windows) { w in
-                WindowRow(estimate: w)
+            if expanded {
+                ForEach(account.windows) { w in
+                    WindowRow(estimate: w)
+                }
             }
 
             if let err = account.error {
@@ -123,17 +129,53 @@ struct AccountSection: View {
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let t = account.observedAt {
-                Text(observedText(t))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if account.error == nil {
-                Text("まだ観測していません（このアカウントで claude にログインすると取得されます）")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if expanded {
+                if let t = account.observedAt {
+                    Text(observedText(t))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if account.error == nil {
+                    Text("まだ観測していません（このアカウントで claude にログインすると取得されます）")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
+    }
+
+    /// クリックで開閉。畳んでいるときはメニューバーと同じ要約を右に出す
+    private var header: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                Text("\(account.label) - \(account.name)")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                if !expanded, let summary = collapsedSummary {
+                    Text(summary)
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Text(account.isLive ? "ログイン中" : "未ログイン")
+                    .font(.caption2)
+                    .foregroundStyle(account.isLive ? Color.green : Color.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var collapsedSummary: String? {
+        guard let p = account.peak else { return nil }
+        return account.isLive ? "\(Int(p.rounded()))%" : "≥\(Int(p.rounded()))%"
     }
 
     private func observedText(_ t: Date) -> String {
