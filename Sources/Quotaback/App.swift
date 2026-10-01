@@ -36,12 +36,31 @@ struct UsagePanel: View {
         )
     }
 
+    /// アカウント一覧の実際の高さ（スクロール領域をそれに合わせるため）
+    @State private var listHeight: CGFloat = 0
+
+    /// 画面に収まる一覧の最大の高さ。ボタン類（約120pt）とメニューバーからの余白を引く
+    private var maxListHeight: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        return max(200, screen - 160)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(store.accounts) { account in
-                AccountSection(account: account, expanded: expandedBinding(for: account))
-                if account != store.accounts.last { Divider() }
+            // 開くと画面に収まらないことがあるので、一覧だけスクロールさせてボタン類は常に見せる
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(store.accounts) { account in
+                        AccountSection(account: account, expanded: expandedBinding(for: account))
+                        if account != store.accounts.last { Divider() }
+                    }
+                }
+                .background(GeometryReader { g in
+                    Color.clear.preference(key: ListHeightKey.self, value: g.size.height)
+                })
             }
+            .frame(height: min(listHeight, maxListHeight))
+            .onPreferenceChange(ListHeightKey.self) { listHeight = $0 }
             if let err = store.configError {
                 Text(err)
                     .font(.caption)
@@ -69,6 +88,11 @@ struct UsagePanel: View {
         .frame(width: 340)
         .onAppear { store.panelOpened() }
     }
+}
+
+private struct ListHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// ログイン時に起動（SMAppService）。.app バンドルから起動しているときだけ使える。
