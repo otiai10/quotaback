@@ -20,61 +20,29 @@ enum UsageClient {
     static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     static let betaHeader = "oauth-2025-04-20"
 
-    // MARK: - Credentials (読み取り専用。リフレッシュはしない)
-
-    /// Claude Code が保存している credentials JSON から accessToken を取り出す。
-    /// 期限切れの場合、ここで refresh はしない（refresh token のローテーションで
-    /// Claude Code 側のログインを壊す可能性があるため）。
-    static func accessToken(for account: AccountConfig) throws -> String {
-        let raw: Data
-        if let service = account.keychainService {
-            raw = try readKeychain(service: service)
-        } else if let path = account.credentialsPath {
-            let expanded = (path as NSString).expandingTildeInPath
-            guard let d = FileManager.default.contents(atPath: expanded) else {
-                throw UsageError.credentials("\(path) が見つかりません")
-            }
-            raw = d
-        } else {
-            throw UsageError.credentials("keychainService か credentialsPath を設定してください")
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
-              let oauth = json["claudeAiOauth"] as? [String: Any],
-              let token = oauth["accessToken"] as? String else {
-            throw UsageError.credentials("claudeAiOauth.accessToken がありません")
-        }
-        if let expiresAt = oauth["expiresAt"] as? Double,
-           Date(timeIntervalSince1970: expiresAt / 1000) < Date() {
-            throw UsageError.tokenExpired
-        }
-        return token
-    }
-
-    /// `security` コマンド経由で読む（初回に Keychain のアクセス許可ダイアログが出る。
-    /// 「常に許可」を選べば以降は出ない）
-    private static func readKeychain(service: String) throws -> Data {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        p.arguments = ["find-generic-password", "-s", service, "-w"]
-        let out = Pipe(), err = Pipe()
-        p.standardOutput = out
-        p.standardError = err
-        try p.run()
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else {
-            let msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw UsageError.credentials("Keychain '\(service)': \(msg.trimmingCharacters(in: .whitespacesAndNewlines))")
-        }
-        var data = out.fileHandleForReading.readDataToEndOfFile()
-        if data.last == 0x0A { data.removeLast() }
-        return data
-    }
-
     // MARK: - Fetch
 
-    static func fetch(account: AccountConfig) async throws -> [UsageWindow] {
-        let token = try accessToken(for: account)
+    struct SourceResult {
+        let source: CredentialSource
+        /// 持ち主のメール（`.claude.json` から判定。分からなければ nil）
+        let email: String?
+        let result: Result<[UsageWindow], Error>
+    }
+
+    /// 1つの置き場所について、持ち主の判定と取得をまとめて行う
+    static func poll(_ source: CredentialSource) async -> SourceResult {
+        let email = source.ownerEmail()
+        do {
+            let windows = try await fetch(source: source, rawName: email ?? source.id)
+            return SourceResult(source: source, email: email, result: .success(windows))
+        } catch {
+            return SourceResult(source: source, email: email, result: .failure(error))
+        }
+    }
+
+    /// - Parameter rawName: 生レスポンスの保存ファイル名に使う（アカウントのメールなど）
+    static func fetch(source: CredentialSource, rawName: String) async throws -> [UsageWindow] {
+        let token = try source.accessToken()
         var req = URLRequest(url: endpoint)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue(betaHeader, forHTTPHeaderField: "anthropic-beta")
@@ -86,13 +54,14 @@ enum UsageClient {
         guard code == 200 else {
             throw UsageError.http(code, String(data: data, encoding: .utf8) ?? "")
         }
-        saveRawResponse(data, label: account.label)
+        saveRawResponse(data, name: rawName)
         return try parse(data)
     }
 
     /// デバッグ用に生レスポンスを保存（非公式APIなので形式が変わったときに確認できるように）
-    private static func saveRawResponse(_ data: Data, label: String) {
-        let url = AppConfig.directory.appendingPathComponent("last-response-\(label).json")
+    private static func saveRawResponse(_ data: Data, name: String) {
+        let safe = name.replacingOccurrences(of: "/", with: "_")
+        let url = AppConfig.directory.appendingPathComponent("last-response-\(safe).json")
         try? data.write(to: url)
     }
 

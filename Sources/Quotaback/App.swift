@@ -29,9 +29,9 @@ struct UsagePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(store.config.accounts) { account in
+            ForEach(store.accounts) { account in
                 AccountSection(account: account, state: store.state(for: account))
-                if account != store.config.accounts.last { Divider() }
+                if account != store.accounts.last { Divider() }
             }
             Divider()
             HStack {
@@ -114,7 +114,13 @@ struct AccountSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let t = state.fetchedAt {
-                Text("取得: \(t.formatted(date: .omitted, time: .shortened))")
+                Text(state.isCurrent
+                     ? "取得: \(t.formatted(date: .omitted, time: .shortened))"
+                     : "未ログイン · 最終取得 \(t.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if !state.loading && state.error == nil {
+                Text("未ログイン（このアカウントで claude にログインすると取得されます）")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -130,24 +136,26 @@ struct WindowRow: View {
             HStack {
                 Text(window.title).font(.subheadline)
                 Spacer()
-                Text("\(Int(window.utilization.rounded()))%")
+                Text(isReset ? "リセット済み" : "\(Int(window.utilization.rounded()))%")
                     .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(color)
+                    .foregroundStyle(isReset ? .secondary : color)
             }
             if let detail = window.detail {
                 Text(detail)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            ProgressView(value: min(window.utilization, 100), total: 100)
+            ProgressView(value: isReset ? 0 : min(window.utilization, 100), total: 100)
                 .tint(color)
-            if let r = window.resetsAt {
+            if let r = window.resetsAt, !isReset {
                 Text("Resets \(Self.resetFormatter.string(from: r))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
     }
+
+    private var isReset: Bool { window.isReset() }
 
     private var color: Color {
         switch window.utilization {
