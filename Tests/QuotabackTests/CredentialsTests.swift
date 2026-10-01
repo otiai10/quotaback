@@ -90,3 +90,42 @@ final class CredentialsTests: XCTestCase {
         XCTAssertEqual(CredentialSource.fingerprint("abc").count, 16)
     }
 }
+
+final class AppConfigTests: XCTestCase {
+    let base = AppConfig(refreshSeconds: 300, accounts: [
+        AccountConfig(label: "P", name: "p@example.com"),
+        AccountConfig(label: "W", name: "w@example.com"),
+    ])
+
+    func testLabelOnlyChangeDoesNotNeedRefetch() {
+        var new = base
+        new.accounts[0].label = "🏠"
+        new.accounts[1].label = "💼"
+        XCTAssertNotEqual(new, base)
+        XCTAssertFalse(new.needsRefetch(comparedTo: base))
+    }
+
+    func testSourceOrIntervalChangeNeedsRefetch() {
+        var interval = base
+        interval.refreshSeconds = 120
+        XCTAssertTrue(interval.needsRefetch(comparedTo: base))
+
+        var sources = base
+        sources.sources = [CredentialSource(credentialsPath: "~/.claude-work/.credentials.json")]
+        XCTAssertTrue(sources.needsRefetch(comparedTo: base))
+
+        var account = base
+        account.accounts.append(AccountConfig(label: "X", name: "x@example.com"))
+        XCTAssertTrue(account.needsRefetch(comparedTo: base))
+    }
+
+    func testReadFailsOnBrokenJSONInsteadOfFallingBack() throws {
+        let url = try tempDirectory().appendingPathComponent("config.json")
+        try Data(#"{"refreshSeconds": 300, "accounts": [{"label": "🏠", "name": "p@example.com"#.utf8).write(to: url)
+        guard case .failure = AppConfig.read(from: url) else { return XCTFail("壊れた JSON は失敗にする") }
+
+        try Data(#"{"refreshSeconds": 300, "accounts": [{"label": "🏠", "name": "p@example.com"}]}"#.utf8).write(to: url)
+        guard case .success(let cfg) = AppConfig.read(from: url) else { return XCTFail() }
+        XCTAssertEqual(cfg.accounts.first?.label, "🏠")
+    }
+}

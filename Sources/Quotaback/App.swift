@@ -33,6 +33,12 @@ struct UsagePanel: View {
                 AccountSection(account: account)
                 if account != store.accounts.last { Divider() }
             }
+            if let err = store.configError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Divider()
             HStack {
                 Button("更新") { store.refreshAll() }

@@ -37,7 +37,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - `Credentials.swift` `CredentialSource`、置き場所の自動検出、持ち主の判定（`.claude.json` の `oauthAccount.emailAddress`）、トークン読み取りとハッシュ
   - `UsageClient.swift` usage API 呼び出しとレスポンス解析（`UsageWindow`）
 - `Models.swift` 設定（`~/.config/quotaback/config.json`）。`AccountConfig.provider` は省略時 "claude"
-- `UsageStore.swift` UI 用。5分ごとの全取得、15秒ごとの切り替え検知（検知したら3秒待って取得）と推定値の再計算
+- `UsageStore.swift` UI 用。5分ごとの全取得、15秒ごとの切り替え検知（検知したら3秒待って取得）と推定値の再計算、`config.json` の変更の自動反映（ディレクトリを DispatchSource で監視 + 15秒ごとの mtime 確認。壊れた JSON は無視して前の設定を維持）
 - `App.swift` UI（ログイン時起動トグル含む）
 - `Main.swift` エントリポイント。`--once` でアプリと同じ経路で1回観測・記録して結果と推定を表示
 - `Tests/QuotabackTests` パーサー、認証情報、推定、保存、エンジン（取り違え防止・切り替え検知）のテスト
