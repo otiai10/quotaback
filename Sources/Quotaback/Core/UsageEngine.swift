@@ -179,10 +179,17 @@ struct AccountView: Identifiable, Hashable {
 
     var id: String { key.id }
 
-    /// メニューバー用: 利用上限枠の下限値の最大
-    var peak: Double? {
-        windows.filter(\.window.isLimit).map(\.lowerBound).max()
+    /// 代表の枠: 利用上限枠のうち一番埋まっているもの（メニューバーの % はこの枠の値）。
+    /// 同じ値ならリセットが遠い方（回復に時間がかかる方が効く制約なので）
+    var representative: WindowEstimate? {
+        windows.filter(\.window.isLimit).max { a, b in
+            if a.lowerBound != b.lowerBound { return a.lowerBound < b.lowerBound }
+            return (a.window.resetsAt ?? .distantPast) < (b.window.resetsAt ?? .distantPast)
+        }
     }
+
+    /// メニューバー用: 利用上限枠の下限値の最大
+    var peak: Double? { representative?.lowerBound }
 
     var menuBarText: String {
         if let p = peak {

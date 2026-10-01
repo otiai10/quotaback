@@ -121,6 +121,9 @@ struct AccountSection: View {
                 ForEach(account.windows) { w in
                     WindowRow(estimate: w)
                 }
+            } else if let rep = account.representative {
+                // 畳んでいるときは一番埋まっている枠だけ
+                WindowRow(estimate: rep)
             }
 
             if let err = account.error {
@@ -144,7 +147,7 @@ struct AccountSection: View {
         }
     }
 
-    /// クリックで開閉。畳んでいるときはメニューバーと同じ要約を右に出す
+    /// クリックで開閉
     private var header: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
@@ -159,11 +162,6 @@ struct AccountSection: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
-                if !expanded, let summary = collapsedSummary {
-                    Text(summary)
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
                 Text(account.isLive ? "ログイン中" : "未ログイン")
                     .font(.caption2)
                     .foregroundStyle(account.isLive ? Color.green : Color.secondary)
@@ -171,11 +169,6 @@ struct AccountSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private var collapsedSummary: String? {
-        guard let p = account.peak else { return nil }
-        return account.isLive ? "\(Int(p.rounded()))%" : "≥\(Int(p.rounded()))%"
     }
 
     private func observedText(_ t: Date) -> String {

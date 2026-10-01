@@ -186,6 +186,27 @@ final class UsageEngineTests: XCTestCase {
         XCTAssertTrue(changed.isEmpty, "一度検知したら繰り返さない")
     }
 
+    func testRepresentativeIsFullestLimitWindow() {
+        func est(_ key: String, _ v: Double, reset: Date?, isLimit: Bool = true) -> WindowEstimate {
+            Estimator.estimate(window(key, percent: v, resetsAt: reset, isLimit: isLimit),
+                               observedAt: t0, isLive: true, now: t0)
+        }
+        func view(_ ws: [WindowEstimate]) -> AccountView {
+            AccountView(key: AccountKey(provider: "claude", account: "p@example.com"), label: "P", name: "p",
+                        isLive: true, observedAt: t0, source: nil, error: nil, windows: ws)
+        }
+        let session = est("session", 30, reset: t0 + hour)
+        let weekly = est("weekly_all", 61, reset: t0 + 5 * day)
+        let credits = est("spend", 90, reset: nil, isLimit: false)
+        XCTAssertEqual(view([session, weekly, credits]).representative?.window.key, "weekly_all", "credits は対象外")
+        XCTAssertEqual(view([session, weekly]).peak, 61)
+
+        let tieSession = est("session", 40, reset: t0 + hour)
+        let tieWeekly = est("weekly_all", 40, reset: t0 + 5 * day)
+        XCTAssertEqual(view([tieSession, tieWeekly]).representative?.window.key, "weekly_all", "同値ならリセットが遠い方")
+        XCTAssertNil(view([credits]).representative)
+    }
+
     func testResetTransitionsWithoutFetching() async throws {
         let e = try engine()
         let f = FakeTarget(owner: "w@example.com")
