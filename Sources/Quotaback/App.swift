@@ -185,10 +185,21 @@ struct AccountSection: View {
     let account: AccountView
     @Binding var expanded: Bool
 
+    /// 見出しの ▸ の幅と、▸ とラベルの間隔。中身はこの分だけ下げてラベルの位置に揃える
+    private static let chevronWidth: CGFloat = 10
+    private static let headerSpacing: CGFloat = 6
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
+            content
+                .padding(.leading, Self.chevronWidth + Self.headerSpacing)
+        }
+    }
 
+    @ViewBuilder
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 8) {
             if expanded {
                 ForEach(account.windows) { w in
                     WindowRow(estimate: w)
@@ -224,11 +235,12 @@ struct AccountSection: View {
         Button {
             expanded.toggle()
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: Self.headerSpacing) {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .frame(width: Self.chevronWidth)
                 Text("\(account.label) - \(account.name)")
                     .font(.headline)
                     .lineLimit(1)
