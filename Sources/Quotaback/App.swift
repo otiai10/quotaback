@@ -30,17 +30,19 @@ struct UsagePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(store.accounts) { account in
-                AccountSection(account: account, state: store.state(for: account))
+                AccountSection(account: account)
                 if account != store.accounts.last { Divider() }
             }
             Divider()
             HStack {
                 Button("更新") { store.refreshAll() }
+                    .disabled(store.refreshing)
                 Button("設定を開く") {
                     NSWorkspace.shared.open(AppConfig.path)
                 }
                 Button("設定を再読込") { store.reloadConfig() }
                 Spacer()
+                if store.refreshing { ProgressView().controlSize(.mini) }
                 Button("終了") { NSApp.terminate(nil) }
             }
             .controlSize(.small)
@@ -92,80 +94,117 @@ struct LoginItemToggle: View {
 }
 
 struct AccountSection: View {
-    let account: AccountConfig
-    let state: AccountState
+    let account: AccountView
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text(account.name).font(.headline)
                 Spacer()
-                if state.loading { ProgressView().controlSize(.mini) }
+                Text(account.isLive ? "ログイン中" : "未ログイン")
+                    .font(.caption2)
+                    .foregroundStyle(account.isLive ? Color.green : Color.secondary)
             }
 
-            ForEach(state.windows) { w in
-                WindowRow(window: w)
+            ForEach(account.windows) { w in
+                WindowRow(estimate: w)
             }
 
-            if let err = state.error {
+            if let err = account.error {
                 Text(err)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let t = state.fetchedAt {
-                Text(state.isCurrent
-                     ? "取得: \(t.formatted(date: .omitted, time: .shortened))"
-                     : "\(state.error == nil ? "未ログイン · " : "")最終取得 \(t.formatted(date: .abbreviated, time: .shortened))")
+            if let t = account.observedAt {
+                Text(observedText(t))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-            } else if !state.loading && state.error == nil {
-                Text("未ログイン（このアカウントで claude にログインすると取得されます）")
+            } else if account.error == nil {
+                Text("まだ観測していません（このアカウントで claude にログインすると取得されます）")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func observedText(_ t: Date) -> String {
+        let time = t.formatted(date: Calendar.current.isDateInToday(t) ? .omitted : .abbreviated, time: .shortened)
+        if account.isLive { return "取得: \(time)" }
+        let ago = RelativeDateTimeFormatter().localizedString(for: t, relativeTo: Date())
+        return "最終観測: \(time)（\(ago)）· 以降の使用は含まない下限値"
     }
 }
 
 struct WindowRow: View {
-    let window: UsageWindow
+    let estimate: WindowEstimate
+
+    private var window: WindowObservation { estimate.window }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(window.title).font(.subheadline)
                 Spacer()
-                Text(isReset ? "リセット済み" : "\(Int(window.utilization.rounded()))%")
+                Text(valueText)
                     .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(isReset ? .secondary : color)
+                    .foregroundStyle(valueColor)
             }
             if let detail = window.detail {
                 Text(detail)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            ProgressView(value: isReset ? 0 : min(window.utilization, 100), total: 100)
+            ProgressView(value: min(estimate.lowerBound, 100), total: 100)
                 .tint(color)
-            if let r = window.resetsAt, !isReset {
-                Text("Resets \(Self.resetFormatter.string(from: r))")
+            if let reset = resetText {
+                Text(reset)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+            if let eta = estimate.limitETA {
+                Text("このペースだと \(Self.resetFormatter.string(from: eta)) 頃に上限")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
             }
         }
     }
 
-    private var isReset: Bool { window.isReset() }
+    private var valueText: String {
+        switch estimate.value {
+        case .exact(let v): return "\(Int(v.rounded()))%"
+        case .atLeast(let v): return "≥\(Int(v.rounded()))%"
+        case .reset: return "リセット済み"
+        }
+    }
+
+    private var valueColor: Color {
+        if case .reset = estimate.value { return .secondary }
+        return color
+    }
+
+    private var resetText: String? {
+        switch estimate.nextReset {
+        case .known(let d): return "Resets \(Self.resetFormatter.string(from: d))"
+        case .projected(let d): return "Resets \(Self.resetFormatter.string(from: d))（推定）"
+        case .unknown:
+            if case .reset = estimate.value, case .rolling = window.cadence {
+                return "次のリセットは使い始めてから決まる"
+            }
+            return nil
+        }
+    }
 
     private var color: Color {
-        switch window.utilization {
+        switch estimate.lowerBound {
         case ..<60: return .accentColor
         case ..<85: return .orange
         default: return .red
         }
     }
 
-    private static let resetFormatter: DateFormatter = {
+    static let resetFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "M/d (E) HH:mm"
         return f

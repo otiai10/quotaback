@@ -1,4 +1,68 @@
 import Foundation
+import CryptoKit
+
+/// Claude Code のログイン1つ分の認証情報の置き場所。
+/// 1つの置き場所には「最後にログインしたアカウント」のトークンしか入らない。
+struct CredentialSource: Codable, Hashable, Identifiable {
+    var keychainService: String?   // 例: "Claude Code-credentials"
+    var credentialsPath: String?   // 例: "~/.claude-work/.credentials.json"
+    /// 持ち主のメールアドレスを読む `.claude.json`。省略時は置き場所から推定
+    var profilePath: String?
+    /// `.claude.json` で判定できないときの手動指定
+    var email: String?
+
+    static let defaultKeychain = CredentialSource(keychainService: "Claude Code-credentials")
+
+    var id: String {
+        if let s = keychainService { return "keychain:\(s)" }
+        return "file:\((credentialsPath.map { ($0 as NSString).expandingTildeInPath }) ?? "")"
+    }
+
+    var description: String {
+        if let s = keychainService { return "Keychain '\(s)'" }
+        return credentialsPath ?? "(未設定)"
+    }
+
+    /// 持ち主を判定する `.claude.json` の場所。
+    /// - 既定の Keychain エントリ → `~/.claude.json`
+    /// - `~/.claude/.credentials.json` → `~/.claude.json`
+    /// - `<dir>/.credentials.json` → `<dir>/.claude.json`（CLAUDE_CONFIG_DIR を分けている場合）
+    var resolvedProfilePath: String? {
+        if let p = profilePath { return (p as NSString).expandingTildeInPath }
+        if keychainService == Self.defaultKeychain.keychainService {
+            return (("~/.claude.json") as NSString).expandingTildeInPath
+        }
+        if let c = credentialsPath {
+            let dir = ((c as NSString).expandingTildeInPath as NSString).deletingLastPathComponent
+            // 既定の ~/.claude だけは .claude.json がホーム直下にある
+            if dir == ("~/.claude" as NSString).expandingTildeInPath {
+                return ("~/.claude.json" as NSString).expandingTildeInPath
+            }
+            return (dir as NSString).appendingPathComponent(".claude.json")
+        }
+        return nil
+    }
+}
+
+extension AppConfig {
+    /// 実際に読みに行く認証情報の置き場所
+    func effectiveSources(discovered: [CredentialSource]) -> [CredentialSource] {
+        let candidates: [CredentialSource]
+        if let sources {
+            candidates = sources
+        } else {
+            let legacy = accounts.compactMap { a -> CredentialSource? in
+                // "Claude Code-credentials-<SUFFIX>" のような未記入のプレースホルダは無視
+                if let s = a.keychainService, !s.contains("<") { return CredentialSource(keychainService: s) }
+                if let c = a.credentialsPath { return CredentialSource(credentialsPath: c) }
+                return nil
+            }
+            candidates = legacy + discovered
+        }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.id).inserted }
+    }
+}
 
 /// 認証情報の読み取り（読み取り専用。リフレッシュはしない）
 extension CredentialSource {
@@ -70,6 +134,11 @@ extension CredentialSource {
             throw UsageError.tokenExpired
         }
         return token
+    }
+
+    /// 取り違え検知用のトークンのハッシュ（先頭16桁）。メモリ上でだけ使い、保存しない
+    static func fingerprint(_ token: String) -> String {
+        SHA256.hash(data: Data(token.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     /// `security` コマンド経由で読む（初回に Keychain のアクセス許可ダイアログが出る。

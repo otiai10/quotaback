@@ -1,6 +1,6 @@
 import Foundation
 
-/// エントリポイント。`--once` なら UI を出さずに全置き場所を1回取得して標準出力に出す。
+/// エントリポイント。`--once` なら UI を出さずに1回観測して記録し、結果を標準出力に出す。
 @main
 enum Main {
     static func main() {
@@ -10,33 +10,51 @@ enum Main {
         QuotabackApp.main()
     }
 
-    /// 動作確認用: 認証情報の置き場所・持ち主の判定・API・パーサーを UI 抜きで通す（トークンは表示しない）
+    /// 動作確認用。アプリと同じ経路で観測・記録する（トークンは表示しない）
     private static func runOnce() -> Int32 {
         let config = AppConfig.load()
-        let sources = config.effectiveSources(discovered: CredentialSource.discover())
+        let targets = Providers.targets(config: config)
         let done = DispatchSemaphore(value: 0)
         var failed = false
         Task.detached {
-            for source in sources {
-                let r = await UsageClient.poll(source)
-                let label = r.email.flatMap { e in config.accounts.first { $0.id == e }?.label } ?? "?"
-                print("[\(label)] \(source.description) → \(r.email ?? "持ち主不明（\(source.resolvedProfilePath ?? "-") を読めず）")")
-                switch r.result {
-                case .success(let windows):
-                    if windows.isEmpty { print("  (枠なし: last-response-*.json を確認)") }
-                    for w in windows {
-                        let detail = w.detail.map { " (\($0))" } ?? ""
-                        let reset = w.resetsAt.map { " resets \($0.formatted())" } ?? ""
-                        print("  \(w.title) [\(w.key)]: \(Int(w.utilization.rounded()))%\(detail)\(reset)")
-                    }
-                case .failure(let error):
-                    failed = true
-                    print("  error: \(error.localizedDescription)")
+            let engine = UsageEngine(log: ObservationLog.load())
+            print("== 観測")
+            for r in await engine.refresh(targets) {
+                print("\(r.target.description) → \(r.owner ?? "持ち主不明")")
+                switch r.outcome {
+                case .recorded(let b): print("  記録: \(b.windows.count) 枠")
+                case .skipped(let m): print("  スキップ: \(m)")
+                case .failed(let m): failed = true; print("  error: \(m)")
                 }
+            }
+            print("\n== 推定（保存済みの観測を含む）")
+            for a in await engine.accountViews(config: config.accounts) {
+                print("[\(a.label)] \(a.name)  \(a.isLive ? "ログイン中" : "未ログイン")  \(a.menuBarText)")
+                if let t = a.observedAt { print("  最終観測: \(t.formatted()) (\(a.source ?? "-"))") }
+                for e in a.windows { print("  " + describe(e)) }
+                if let err = a.error { print("  error: \(err)") }
             }
             done.signal()
         }
         done.wait()
         return failed ? 1 : 0
+    }
+
+    private static func describe(_ e: WindowEstimate) -> String {
+        let value: String
+        switch e.value {
+        case .exact(let v): value = "\(Int(v.rounded()))%"
+        case .atLeast(let v): value = "≥\(Int(v.rounded()))%"
+        case .reset: value = "リセット済み"
+        }
+        let reset: String
+        switch e.nextReset {
+        case .known(let d): reset = " resets \(d.formatted())"
+        case .projected(let d): reset = " resets \(d.formatted()) (推定)"
+        case .unknown: reset = ""
+        }
+        let detail = e.window.detail.map { " (\($0))" } ?? ""
+        let eta = e.limitETA.map { " · 上限到達見込み \($0.formatted())" } ?? ""
+        return "\(e.window.title) [\(e.window.key)]: \(value)\(detail)\(reset)\(eta)"
     }
 }

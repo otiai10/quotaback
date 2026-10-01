@@ -77,29 +77,16 @@ final class CredentialsTests: XCTestCase {
         let sources = cfg.effectiveSources(discovered: [.defaultKeychain, extra])
 
         XCTAssertEqual(sources, [.defaultKeychain, extra], "プレースホルダは除外、重複は1つに")
-        XCTAssertEqual(cfg.accounts.map(\.id), ["personal@example.com", "work@example.com"])
+        XCTAssertEqual(cfg.accounts.map(\.id), ["claude:personal@example.com", "claude:work@example.com"])
 
         var explicit = cfg
         explicit.sources = [extra]
         XCTAssertEqual(explicit.effectiveSources(discovered: [.defaultKeychain]), [extra], "sources 指定時は自動検出しない")
     }
 
-    func testSnapshotRoundTrip() throws {
-        let url = tmp.appendingPathComponent("state.json")
-        let window = UsageWindow(key: "weekly_scoped/Fable", title: "Current week (Fable)", utilization: 19,
-                                 resetsAt: Date(timeIntervalSince1970: 1_791_000_000), isLimit: true)
-        let all = ["w@example.com": Snapshot(windows: [window], fetchedAt: Date(timeIntervalSince1970: 1_790_000_000))]
-
-        Snapshot.saveAll(all, to: url)
-
-        XCTAssertEqual(Snapshot.loadAll(from: url), all)
-        XCTAssertEqual(Snapshot.loadAll(from: tmp.appendingPathComponent("missing.json")), [:])
-    }
-
-    func testIsReset() {
-        let past = UsageWindow(key: "session", title: "", utilization: 80, resetsAt: Date(timeIntervalSinceNow: -60), isLimit: true)
-        let future = UsageWindow(key: "session", title: "", utilization: 80, resetsAt: Date(timeIntervalSinceNow: 60), isLimit: true)
-        XCTAssertTrue(past.isReset())
-        XCTAssertFalse(future.isReset())
+    func testFingerprintIsStableAndShort() {
+        XCTAssertEqual(CredentialSource.fingerprint("abc"), CredentialSource.fingerprint("abc"))
+        XCTAssertNotEqual(CredentialSource.fingerprint("abc"), CredentialSource.fingerprint("abd"))
+        XCTAssertEqual(CredentialSource.fingerprint("abc").count, 16)
     }
 }
