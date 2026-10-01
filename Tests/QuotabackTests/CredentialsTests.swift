@@ -26,6 +26,8 @@ final class CredentialsTests: XCTestCase {
         XCTAssertEqual(CredentialSource.defaultKeychain.resolvedProfilePath, home + "/.claude.json")
         XCTAssertEqual(CredentialSource(credentialsPath: "~/.claude-work/.credentials.json").resolvedProfilePath,
                        home + "/.claude-work/.claude.json")
+        XCTAssertEqual(CredentialSource(credentialsPath: "~/.claude/.credentials.json").resolvedProfilePath,
+                       home + "/.claude.json")
         XCTAssertNil(CredentialSource(keychainService: "Claude Code-credentials-abcd1234").resolvedProfilePath)
         XCTAssertEqual(CredentialSource(keychainService: "x", profilePath: "~/p.json").resolvedProfilePath,
                        home + "/p.json")

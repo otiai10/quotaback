@@ -35,6 +35,7 @@ struct CredentialSource: Codable, Hashable, Identifiable {
 
     /// 持ち主を判定する `.claude.json` の場所。
     /// - 既定の Keychain エントリ → `~/.claude.json`
+    /// - `~/.claude/.credentials.json` → `~/.claude.json`
     /// - `<dir>/.credentials.json` → `<dir>/.claude.json`（CLAUDE_CONFIG_DIR を分けている場合）
     var resolvedProfilePath: String? {
         if let p = profilePath { return (p as NSString).expandingTildeInPath }
@@ -43,6 +44,10 @@ struct CredentialSource: Codable, Hashable, Identifiable {
         }
         if let c = credentialsPath {
             let dir = ((c as NSString).expandingTildeInPath as NSString).deletingLastPathComponent
+            // 既定の ~/.claude だけは .claude.json がホーム直下にある
+            if dir == ("~/.claude" as NSString).expandingTildeInPath {
+                return ("~/.claude.json" as NSString).expandingTildeInPath
+            }
             return (dir as NSString).appendingPathComponent(".claude.json")
         }
         return nil

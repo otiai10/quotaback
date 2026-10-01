@@ -116,7 +116,7 @@ struct AccountSection: View {
             if let t = state.fetchedAt {
                 Text(state.isCurrent
                      ? "取得: \(t.formatted(date: .omitted, time: .shortened))"
-                     : "未ログイン · 最終取得 \(t.formatted(date: .abbreviated, time: .shortened))")
+                     : "\(state.error == nil ? "未ログイン · " : "")最終取得 \(t.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else if !state.loading && state.error == nil {
