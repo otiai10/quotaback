@@ -2,25 +2,56 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+import Combine
+
+/// メニューバーの項目とパネル。MenuBarExtra(.window) は中身が縮んでもウィンドウが縮まないので、
+/// NSStatusItem + NSPopover にして、パネルの大きさは NSHostingController の preferredContentSize に追従させる。
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+    private var store: UsageStore!
+    private var statusItem: NSStatusItem!
+    private let popover = NSPopover()
+    private var titleSubscription: AnyCancellable?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Dock に出さない常駐アプリにする（Info.plist の LSUIElement 相当）
         NSApp.setActivationPolicy(.accessory)
-    }
-}
 
-struct QuotabackApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject private var store = UsageStore()
+        store = UsageStore()
 
-    var body: some Scene {
-        MenuBarExtra {
-            UsagePanel(store: store)
-        } label: {
-            Text(store.menuBarTitle)
-                .monospacedDigit()
+        let hosting = NSHostingController(rootView: UsagePanel(store: store))
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
+        popover.behavior = .transient
+        popover.animates = false
+        popover.delegate = self
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(togglePopover)
+        titleSubscription = store.$accounts.receive(on: RunLoop.main).sink { [weak self] _ in
+            Task { @MainActor in self?.updateTitle() }
         }
-        .menuBarExtraStyle(.window)
+        updateTitle()
+    }
+
+    private func updateTitle() {
+        let title = store.menuBarTitle.isEmpty ? "Quotaback" : store.menuBarTitle
+        statusItem.button?.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)])
+    }
+
+    @objc private func togglePopover() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            store.panelOpened()
+            // アクティブにしておかないと、外をクリックしても閉じない
+            NSApp.activate(ignoringOtherApps: true)
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
     }
 }
 
@@ -39,7 +70,7 @@ struct UsagePanel: View {
     /// アカウント一覧の実際の高さ（スクロール領域をそれに合わせるため）
     @State private var listHeight: CGFloat = 0
 
-    /// 画面に収まる一覧の最大の高さ。ボタン類（約120pt）とメニューバーからの余白を引く
+    /// 画面に収まる一覧の最大の高さ。ボタン類（約120pt）とメニューバー・ポップオーバーの矢印の余白を引く
     private var maxListHeight: CGFloat {
         let screen = NSScreen.main?.visibleFrame.height ?? 800
         return max(200, screen - 160)
@@ -61,7 +92,6 @@ struct UsagePanel: View {
             }
             .frame(height: min(listHeight, maxListHeight))
             .onPreferenceChange(ListHeightKey.self) { listHeight = $0 }
-            .background(WindowFitter(trigger: [listHeight, store.configError == nil ? 0 : 1]))
             if let err = store.configError {
                 Text(err)
                     .font(.caption)
@@ -87,29 +117,6 @@ struct UsagePanel: View {
         }
         .padding(14)
         .frame(width: 340)
-        .onAppear { store.panelOpened() }
-    }
-}
-
-/// MenuBarExtra のウィンドウは中身が小さくなっても縮まないことがあるので、
-/// 中身の高さが変わるたびに上端を固定したままウィンドウを中身に合わせる
-private struct WindowFitter: NSViewRepresentable {
-    let trigger: [CGFloat]
-
-    func makeNSView(context: Context) -> NSView { NSView() }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = view.window, let content = window.contentView else { return }
-            let fitting = content.fittingSize
-            guard fitting.height > 0 else { return }
-            let height = window.frameRect(forContentRect: NSRect(origin: .zero, size: fitting)).height
-            var frame = window.frame
-            guard abs(frame.height - height) > 0.5 else { return }
-            frame.origin.y += frame.height - height
-            frame.size.height = height
-            window.setFrame(frame, display: true)
-        }
     }
 }
 

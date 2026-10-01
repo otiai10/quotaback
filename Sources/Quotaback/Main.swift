@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// エントリポイント。`--once` なら UI を出さずに1回観測して記録し、結果を標準出力に出す。
 @main
@@ -7,7 +7,10 @@ enum Main {
         if CommandLine.arguments.contains("--once") {
             exit(runOnce())
         }
-        QuotabackApp.main()
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.run()
     }
 
     /// 動作確認用。アプリと同じ経路で観測・記録する（トークンは表示しない）

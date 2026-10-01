@@ -26,7 +26,8 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 スコープは `/usage` の上限表示のみ（Current session / Current week (all models) / Current week (<model>) / Usage credits）。トークン量やコスト集計は対象外。
 
 ## 構成
-- SwiftPM の executableTarget、macOS 13+、SwiftUI `MenuBarExtra`（`.window` スタイル）
+- SwiftPM の executableTarget、macOS 13+。メニューバーは `NSStatusItem` + `NSPopover`（中身は SwiftUI、`NSHostingController.sizingOptions = .preferredContentSize` で大きさを追従）
+  - 当初は SwiftUI `MenuBarExtra(.window)` だったが、畳んで中身が縮んでもウィンドウが縮まず、上下に空白が残った（外から setFrame しても直らず）ので置き換えた
 - `NSApp.setActivationPolicy(.accessory)` で Dock 非表示
 - `Core/` プロバイダに依存しない部分
   - `Observation.swift` `AccountKey`（`provider:account`）、`Cadence`（fixed / monthly / rolling / unknown）、`WindowObservation`、`ObservationBatch`
@@ -41,7 +42,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - `Models.swift` 設定（`~/.config/quotaback/config.json`）。`AccountConfig.provider` は省略時 "claude"
 - `Core/ActivityLog.swift` `activity.log` に切り替え検知と取得結果を追記（トークンは書かない）。テストでは `ActivityLog.url` を一時ディレクトリに向けること
 - `UsageStore.swift` UI 用。5分ごとの全取得、2秒ごとの切り替え検知（mtime が変わったときだけ `.claude.json` を読む。検知したら1秒待って取得、見送られたら5秒後と35秒後に取り直し）、パネルを開いたときの確認（直近の取得から15秒以上なら取得）、15秒ごとの推定値の再計算、`config.json` の変更の自動反映（ディレクトリを DispatchSource で監視 + 15秒ごとの mtime 確認。壊れた JSON は無視して前の設定を維持）
-- `App.swift` UI（ログイン時起動トグル含む）
+- `App.swift` `AppDelegate`（ステータス項目とポップオーバー）と UI（ログイン時起動トグル含む）。`Main.swift` から `NSApplication.run()` で起動
 - `Main.swift` エントリポイント。`--once` でアプリと同じ経路で1回観測・記録して結果と推定を表示
 - `Tests/QuotabackTests` パーサー、認証情報、推定、保存、エンジン（取り違え防止・切り替え検知）のテスト
 - `scripts/bundle.sh` release ビルド → `dist/Quotaback.app`（LSUIElement、ad-hoc 署名）
