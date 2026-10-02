@@ -26,7 +26,7 @@ struct AppConfig: Codable, Equatable {
 
     static let fallback = AppConfig(
         refreshSeconds: 300,
-        // 空でも、観測できたアカウントはメールの頭文字をラベルにして表示される
+        // 観測できたアカウントは、メールの頭文字をラベルにして自動で書き足される
         accounts: []
     )
 
@@ -36,7 +36,7 @@ struct AppConfig: Codable, Equatable {
         if !FileManager.default.fileExists(atPath: path.path) {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let enc = JSONEncoder()
-            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             if let data = try? enc.encode(fallback) { try? data.write(to: path) }
         }
         return fallback
@@ -55,6 +55,33 @@ struct AppConfig: Codable, Equatable {
         refreshSeconds != other.refreshSeconds
             || effectiveSources(discovered: []) != other.effectiveSources(discovered: [])
             || accounts.map(\.key) != other.accounts.map(\.key)
+    }
+
+    /// 観測できたのに設定に無いアカウントを末尾に足したもの。足すものが無ければ nil。
+    /// ラベルはメールの頭文字。持ち主が分からないもの（"?" 始まり）は足さない
+    func addingAccounts(_ keys: [AccountKey]) -> AppConfig? {
+        let existing = Set(accounts.map(\.key))
+        let missing = Set(keys).subtracting(existing)
+            .filter { !$0.account.isEmpty && !$0.account.hasPrefix("?") }
+            .sorted()
+        guard !missing.isEmpty else { return nil }
+        var new = self
+        new.accounts += missing.map { key in
+            AccountConfig(label: UsageEngine.defaultLabel(for: key), name: key.account,
+                          provider: key.provider == ClaudeProvider.id ? nil : key.provider)
+        }
+        return new
+    }
+
+    /// 観測できたアカウントを config.json に書き足す。書き足したらその設定を返す。
+    /// 直前にファイルを読み直して、それに足す（ユーザーの編集を消さない）。読めないときは触らない
+    static func registerAccounts(_ keys: [AccountKey], at url: URL = path) -> AppConfig? {
+        guard case .success(let current) = read(from: url),
+              let new = current.addingAccounts(keys) else { return nil }
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        guard let data = try? enc.encode(new), (try? data.write(to: url, options: .atomic)) != nil else { return nil }
+        return new
     }
 
     static func modificationDate(of url: URL = path) -> Date? {
