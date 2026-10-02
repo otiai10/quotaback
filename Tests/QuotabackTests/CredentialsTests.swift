@@ -119,6 +119,39 @@ final class AppConfigTests: XCTestCase {
         XCTAssertTrue(account.needsRefetch(comparedTo: base))
     }
 
+    func testAddingAccountsAppendsOnlyMissingKnownOwners() throws {
+        let new = try XCTUnwrap(base.addingAccounts([
+            AccountKey(provider: "claude", account: "P@example.com"),   // 既にある（大文字小文字は無視）
+            AccountKey(provider: "codex", account: "p@example.com"),    // 同じメールでもプロバイダ違いは別
+            AccountKey(provider: "claude", account: "?Keychain"),       // 持ち主不明は足さない
+        ]))
+        XCTAssertEqual(new.accounts.count, 3)
+        XCTAssertEqual(new.accounts[2].key, AccountKey(provider: "codex", account: "p@example.com"))
+        XCTAssertEqual(new.accounts[2].label, "P")
+        XCTAssertEqual(new.accounts[2].provider, "codex")
+        XCTAssertNil(base.addingAccounts([AccountKey(provider: "claude", account: "w@example.com")]))
+    }
+
+    func testRegisterAccountsKeepsUserEditsAndSkipsBrokenFile() throws {
+        let url = try tempDirectory().appendingPathComponent("config.json")
+        var edited = base
+        edited.accounts[0].label = "🏈"
+        try JSONEncoder().encode(edited).write(to: url)
+
+        let codex = AccountKey(provider: "codex", account: "p@example.com")
+        let new = try XCTUnwrap(AppConfig.registerAccounts([codex], at: url))
+        XCTAssertEqual(new.accounts.first?.label, "🏈")
+        let reread = try AppConfig.read(from: url).get()
+        XCTAssertEqual(reread, new)
+        XCTAssertNil(reread.accounts[0].provider)   // Claude は provider を省略したまま
+        XCTAssertNil(AppConfig.registerAccounts([codex], at: url))   // 2回目は何もしない
+
+        let broken = #"{"refreshSeconds": 300, "accounts": ["#
+        try Data(broken.utf8).write(to: url)
+        XCTAssertNil(AppConfig.registerAccounts([codex], at: url))
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), broken)
+    }
+
     func testReadFailsOnBrokenJSONInsteadOfFallingBack() throws {
         let url = try tempDirectory().appendingPathComponent("config.json")
         try Data(#"{"refreshSeconds": 300, "accounts": [{"label": "🏠", "name": "p@example.com"#.utf8).write(to: url)

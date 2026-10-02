@@ -147,6 +147,9 @@ actor UsageEngine {
         return String(c).uppercased()
     }
 
+    /// これまでに観測できたアカウント（config.json への書き足しに使う）
+    var observedAccounts: [AccountKey] { log.latest.keys.sorted() }
+
     /// 表示用。設定にあるアカウント（順序どおり）＋観測やエラーで見つかったアカウント
     func accountViews(config: [AccountConfig], now: Date = Date()) -> [AccountView] {
         let live = Set(liveByTarget.values)

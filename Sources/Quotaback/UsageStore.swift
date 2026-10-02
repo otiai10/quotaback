@@ -102,6 +102,15 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// 観測できたのに config.json に無いアカウントを書き足す。ラベルを編集できるように、
+    /// 「観測されたアカウントは必ず設定にある」状態を保つ。取得先は変わらないので取り直さない
+    private func registerObservedAccounts() async {
+        guard configError == nil,
+              let new = AppConfig.registerAccounts(await engine.observedAccounts) else { return }
+        configStamp = AppConfig.modificationDate()
+        config = new
+    }
+
     /// 全対象を取得する。置き場所（`CLAUDE_CONFIG_DIR` の追加など）もここで探し直す
     func refreshAll(reason: String = "manual") {
         targets = Providers.targets(config: config)
@@ -117,6 +126,7 @@ final class UsageStore: ObservableObject {
         Task {
             let reports = await engine.refresh(list, reason: reason)
             lastFetchAt = Date()
+            await registerObservedAccounts()
             await updateViews()
             refreshing = false
             if pending {

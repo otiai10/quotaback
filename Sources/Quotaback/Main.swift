@@ -31,8 +31,14 @@ enum Main {
                 case .unchanged(let m): print("  新しい観測なし: \(m)")
                 }
             }
+            var accounts = config.accounts
+            if let new = AppConfig.registerAccounts(await engine.observedAccounts) {
+                let added = new.accounts.dropFirst(accounts.count)
+                print("\n== config.json に追加: " + added.map { "[\($0.label)] \($0.key.id)" }.joined(separator: ", "))
+                accounts = new.accounts
+            }
             print("\n== 推定（保存済みの観測を含む）")
-            for a in await engine.accountViews(config: config.accounts) {
+            for a in await engine.accountViews(config: accounts) {
                 print("[\(a.label)] \(a.name)  \(a.isLive ? "ログイン中" : "未ログイン")  \(a.menuBarText)")
                 if let t = a.observedAt { print("  最終観測: \(t.formatted()) (\(a.source ?? "-"))") }
                 for e in a.windows { print("  " + describe(e)) }
