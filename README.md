@@ -18,11 +18,13 @@ make install
 {
   "refreshSeconds": 300,
   "accounts": [
-    { "label": "P", "name": "personal@example.com" },
-    { "label": "W", "name": "work@example.com" }
+    { "email": "personal@example.com", "emoji": "🏈", "label": "Personal" },
+    { "email": "work@example.com", "emoji": "💼", "label": "Work" }
   ]
 }
 ```
+
+`emoji` marks the account in the menu bar (`🏈 13% · 💼 ≥43%`). In the panel the account is shown as `emoji` + `label`; without `label`, the part of the email before `@` is shown instead (or the full address if two accounts share it). Without `emoji`, the menu bar uses `label`, or the first letter of the email. Accounts Quotaback observes are added here with just their email.
 
 ## Development
 

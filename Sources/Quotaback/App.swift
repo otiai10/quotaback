@@ -241,7 +241,7 @@ struct AccountSection: View {
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(expanded ? 90 : 0))
                     .frame(width: Self.chevronWidth)
-                Text("\(account.label) - \(account.name)")
+                Text(account.title)
                     .font(.headline)
                     .lineLimit(1)
                     .truncationMode(.middle)

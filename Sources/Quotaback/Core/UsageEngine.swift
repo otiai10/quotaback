@@ -141,10 +141,16 @@ actor UsageEngine {
 
     // MARK: - Views
 
-    /// 設定に無いアカウントのラベル。メールの頭文字、持ち主不明なら "?"
+    /// emoji も label も無いときのメニューバーの表示。メールの頭文字、持ち主不明なら "?"
     static func defaultLabel(for key: AccountKey) -> String {
         guard !key.account.hasPrefix("?"), let c = key.account.first else { return "?" }
         return String(c).uppercased()
+    }
+
+    /// メールアドレスの @ より前（@ が無ければそのまま）
+    static func localPart(_ email: String) -> String {
+        guard let at = email.firstIndex(of: "@"), at != email.startIndex else { return email }
+        return String(email[..<at])
     }
 
     /// これまでに観測できたアカウント（config.json への書き足しに使う）
@@ -160,8 +166,13 @@ actor UsageEngine {
         let extra = Set(log.latest.keys).union(errors.keys).subtracting(keys).sorted()
         keys += extra
 
+        // label が無いときのパネルの見出しは @ より前。別のメールと重なるならメールアドレス全体
+        let localParts = Dictionary(grouping: Set(keys.map(\.account)), by: Self.localPart)
+
         return keys.map { key in
             let cfg = config.first { $0.key == key }
+            let local = Self.localPart(key.account)
+            let name = (localParts[local]?.count ?? 0) > 1 ? key.account : local
             let batch = log.latest[key]
             let isLive = live.contains(key)
             // ログイン中でも、値そのものが古ければ（ログから読んだ過去の記録など）その後の使用は含まないので下限
@@ -171,8 +182,8 @@ actor UsageEngine {
                                    history: log.points(account: key, window: w), now: now)
             }
             return AccountView(key: key,
-                               label: cfg?.label ?? Self.defaultLabel(for: key),
-                               name: cfg?.name ?? key.account,
+                               label: cfg?.emoji ?? cfg?.label ?? Self.defaultLabel(for: key),
+                               title: [cfg?.emoji, cfg?.label ?? name].compactMap { $0 }.joined(separator: " "),
                                isLive: isLive,
                                observedAt: batch?.observedAt,
                                source: batch?.source,
@@ -184,8 +195,8 @@ actor UsageEngine {
 
 struct AccountView: Identifiable, Hashable {
     let key: AccountKey
-    let label: String
-    let name: String
+    let label: String   // メニューバー用
+    let title: String   // パネルの見出し。emoji ＋ label（label が無ければメールの @ より前）
     let isLive: Bool
     let observedAt: Date?
     let source: String?

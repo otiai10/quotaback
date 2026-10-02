@@ -93,8 +93,8 @@ final class CredentialsTests: XCTestCase {
 
 final class AppConfigTests: XCTestCase {
     let base = AppConfig(refreshSeconds: 300, accounts: [
-        AccountConfig(label: "P", name: "p@example.com"),
-        AccountConfig(label: "W", name: "w@example.com"),
+        AccountConfig(email: "p@example.com", label: "P"),
+        AccountConfig(email: "w@example.com", label: "W"),
     ])
 
     func testLabelOnlyChangeDoesNotNeedRefetch() {
@@ -115,7 +115,7 @@ final class AppConfigTests: XCTestCase {
         XCTAssertTrue(sources.needsRefetch(comparedTo: base))
 
         var account = base
-        account.accounts.append(AccountConfig(label: "X", name: "x@example.com"))
+        account.accounts.append(AccountConfig(email: "x@example.com", label: "X"))
         XCTAssertTrue(account.needsRefetch(comparedTo: base))
     }
 
@@ -127,7 +127,8 @@ final class AppConfigTests: XCTestCase {
         ]))
         XCTAssertEqual(new.accounts.count, 3)
         XCTAssertEqual(new.accounts[2].key, AccountKey(provider: "codex", account: "p@example.com"))
-        XCTAssertEqual(new.accounts[2].label, "P")
+        XCTAssertNil(new.accounts[2].label, "ラベルは書かない（パネルにはメールアドレスが出る）")
+        XCTAssertNil(new.accounts[2].emoji)
         XCTAssertEqual(new.accounts[2].provider, "codex")
         XCTAssertNil(base.addingAccounts([AccountKey(provider: "claude", account: "w@example.com")]))
     }
@@ -150,6 +151,21 @@ final class AppConfigTests: XCTestCase {
         try Data(broken.utf8).write(to: url)
         XCTAssertNil(AppConfig.registerAccounts([codex], at: url))
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), broken)
+    }
+
+    func testAccountReadsLegacyNameAndWritesEmail() throws {
+        let json = #"{"refreshSeconds": 300, "accounts": [{"label": "P", "name": "p@example.com"}, {"email": "w@example.com", "emoji": "", "label": ""}]}"#
+        let cfg = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(cfg.accounts.map(\.email), ["p@example.com", "w@example.com"])
+        XCTAssertEqual(cfg.accounts[0].label, "P")
+        XCTAssertNil(cfg.accounts[1].label, "空のラベルは未設定と同じ")
+        XCTAssertNil(cfg.accounts[1].emoji)
+
+        let written = try XCTUnwrap(String(data: JSONEncoder().encode(cfg), encoding: .utf8))
+        XCTAssertTrue(written.contains(#""email":"p@example.com""#))
+        XCTAssertFalse(written.contains(#""name""#), "旧形式のキーは書かない")
+        XCTAssertFalse(written.contains(#""label":"""#))
+        XCTAssertFalse(written.contains(#""emoji""#))
     }
 
     func testReadFailsOnBrokenJSONInsteadOfFallingBack() throws {
