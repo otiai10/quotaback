@@ -39,7 +39,7 @@ enum Main {
             }
             print("\n== 推定（保存済みの観測を含む）")
             for a in await engine.accountViews(config: accounts) {
-                print("[\(a.label)] \(a.name)  \(a.isLive ? "ログイン中" : "未ログイン")  \(a.menuBarText)")
+                print("[\(a.label)] \(a.key.account)  \(a.isLive ? "ログイン中" : "未ログイン")  \(a.menuBarText)")
                 if let t = a.observedAt { print("  最終観測: \(t.formatted()) (\(a.source ?? "-"))") }
                 for e in a.windows { print("  " + describe(e)) }
                 if let err = a.error { print("  error: \(err)") }

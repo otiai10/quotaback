@@ -2,16 +2,59 @@ import Foundation
 
 /// 表示するアカウント。どの認証情報が誰のものかは実行時に判定する（Claude なら `.claude.json` のメールアドレス）。
 struct AccountConfig: Codable, Identifiable, Hashable {
-    var label: String              // メニューバーに出す短いラベル (例: "P", "W")
-    var name: String               // アカウント識別子。Claude ならメールアドレス
+    var email: String              // アカウントの識別子（Claude も Codex もメールアドレス）
+    /// メニューバーに出す短い印（例: "🏈"）。パネルでは見出しの前に付ける
+    var emoji: String?
+    /// 表示名（例: "Personal"）。パネルにメールアドレスの代わりに出す。emoji が無ければメニューバーにも出す
+    var label: String?
     /// 省略時は "claude"
     var provider: String?
     // 旧形式の互換用。指定されていれば Claude の認証情報の置き場所 (CredentialSource) として扱う
     var keychainService: String?
     var credentialsPath: String?
 
-    var key: AccountKey { AccountKey(provider: provider ?? ClaudeProvider.id, account: name) }
+    init(email: String, emoji: String? = nil, label: String? = nil, provider: String? = nil,
+         keychainService: String? = nil, credentialsPath: String? = nil) {
+        self.email = email
+        self.emoji = emoji
+        self.label = label
+        self.provider = provider
+        self.keychainService = keychainService
+        self.credentialsPath = credentialsPath
+    }
+
+    var key: AccountKey { AccountKey(provider: provider ?? ClaudeProvider.id, account: email) }
     var id: String { key.id }
+
+    private enum CodingKeys: String, CodingKey {
+        case email, emoji, label, provider, keychainService, credentialsPath
+        case name   // 旧形式: email と同じ意味
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let email = try c.decodeIfPresent(String.self, forKey: .email) {
+            self.email = email
+        } else {
+            self.email = try c.decode(String.self, forKey: .name)
+        }
+        // 空文字は未設定と同じ
+        emoji = try c.decodeIfPresent(String.self, forKey: .emoji).flatMap { $0.isEmpty ? nil : $0 }
+        label = try c.decodeIfPresent(String.self, forKey: .label).flatMap { $0.isEmpty ? nil : $0 }
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        keychainService = try c.decodeIfPresent(String.self, forKey: .keychainService)
+        credentialsPath = try c.decodeIfPresent(String.self, forKey: .credentialsPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(email, forKey: .email)
+        try c.encodeIfPresent(emoji, forKey: .emoji)
+        try c.encodeIfPresent(label, forKey: .label)
+        try c.encodeIfPresent(provider, forKey: .provider)
+        try c.encodeIfPresent(keychainService, forKey: .keychainService)
+        try c.encodeIfPresent(credentialsPath, forKey: .credentialsPath)
+    }
 }
 
 struct AppConfig: Codable, Equatable {
@@ -50,7 +93,7 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
-    /// 変わったときに取り直しが必要か（取得先や間隔が変わった）。ラベルや表示名だけなら不要
+    /// 変わったときに取り直しが必要か（取得先や間隔が変わった）。ラベルだけなら不要
     func needsRefetch(comparedTo other: AppConfig) -> Bool {
         refreshSeconds != other.refreshSeconds
             || effectiveSources(discovered: []) != other.effectiveSources(discovered: [])
@@ -58,7 +101,7 @@ struct AppConfig: Codable, Equatable {
     }
 
     /// 観測できたのに設定に無いアカウントを末尾に足したもの。足すものが無ければ nil。
-    /// ラベルはメールの頭文字。持ち主が分からないもの（"?" 始まり）は足さない
+    /// emoji・label は書かない（パネルにはメールアドレスが出る）。持ち主が分からないもの（"?" 始まり）は足さない
     func addingAccounts(_ keys: [AccountKey]) -> AppConfig? {
         let existing = Set(accounts.map(\.key))
         let missing = Set(keys).subtracting(existing)
@@ -67,7 +110,7 @@ struct AppConfig: Codable, Equatable {
         guard !missing.isEmpty else { return nil }
         var new = self
         new.accounts += missing.map { key in
-            AccountConfig(label: UsageEngine.defaultLabel(for: key), name: key.account,
+            AccountConfig(email: key.account,
                           provider: key.provider == ClaudeProvider.id ? nil : key.provider)
         }
         return new

@@ -27,8 +27,8 @@ final class FakeTarget: @unchecked Sendable {
 }
 
 final class UsageEngineTests: XCTestCase {
-    let accounts = [AccountConfig(label: "P", name: "p@example.com"),
-                    AccountConfig(label: "W", name: "w@example.com")]
+    let accounts = [AccountConfig(email: "p@example.com", label: "P"),
+                    AccountConfig(email: "w@example.com", label: "W")]
 
     override func setUpWithError() throws {
         ActivityLog.url = try tempDirectory().appendingPathComponent("activity.log")
@@ -166,6 +166,28 @@ final class UsageEngineTests: XCTestCase {
         let views = await e.accountViews(config: accounts, now: t0 + 2)
         XCTAssertEqual(views.count, 4)
         XCTAssertEqual(views.dropFirst(2).map(\.label).sorted(), ["?", "X"], "持ち主不明は ?、設定に無いアカウントは頭文字")
+        XCTAssertEqual(views.first?.title, "P", "ラベルがあればメールアドレスの代わりに出す")
+        XCTAssertEqual(views.first { $0.label == "X" }?.title, "x", "ラベルが無ければメールの @ より前")
+    }
+
+    func testEmojiIsMenuBarMarkAndPrefixesTitle() async throws {
+        let e = try engine()
+        let config = [AccountConfig(email: "p@example.com", emoji: "🏈", label: "Personal"),
+                      AccountConfig(email: "w@example.com", emoji: "💼"),
+                      AccountConfig(email: "x@example.com", label: "Extra")]
+        let views = await e.accountViews(config: config, now: t0)
+        XCTAssertEqual(views.map(\.label), ["🏈", "💼", "Extra"], "メニューバーは emoji、無ければ label")
+        XCTAssertEqual(views.map(\.title), ["🏈 Personal", "💼 w", "Extra"])
+    }
+
+    func testTitleFallsBackToFullEmailWhenLocalPartsCollide() async throws {
+        let e = try engine()
+        let config = [AccountConfig(email: "me@home.example"),
+                      AccountConfig(email: "me@work.example"),
+                      AccountConfig(email: "me@home.example", provider: "codex"),   // 同じメールなら重なりではない
+                      AccountConfig(email: "solo@example.com")]
+        let views = await e.accountViews(config: config, now: t0)
+        XCTAssertEqual(views.map(\.title), ["me@home.example", "me@work.example", "me@home.example", "solo"])
     }
 
     func testChangedTargetsDetectsLoginSwitch() async throws {
@@ -194,7 +216,7 @@ final class UsageEngineTests: XCTestCase {
                                observedAt: t0, isLive: true, now: t0)
         }
         func view(_ ws: [WindowEstimate]) -> AccountView {
-            AccountView(key: AccountKey(provider: "claude", account: "p@example.com"), label: "P", name: "p",
+            AccountView(key: AccountKey(provider: "claude", account: "p@example.com"), label: "P", title: "P",
                         isLive: true, observedAt: t0, source: nil, error: nil, windows: ws)
         }
         let session = est("session", 30, reset: t0 + hour)

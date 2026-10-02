@@ -44,7 +44,8 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - `CodexRolloutReader.swift` `sessions/YYYY/MM/DD/rollout-*.jsonl` を新しい順に末尾 1MB だけ読み、最新の `token_count` の `rate_limits` を取る。枠は `window_minutes` で区別（300=5h limit/rolling、10080=Weekly limit/fixed 7d）。`resets_at`（epoch）と旧形式の `resets_in_seconds` の両方に対応
 - `Core/UsageError.swift` 取得失敗の種類。`noObservation` は「持ち主は分かるが新しい観測なし」で、エラーを出さずにログイン中のまま前回値を下限で出す
 - `Models.swift` 設定（`~/.config/quotaback/config.json`）。`AccountConfig.provider` は省略時 "claude"
-  - 「観測できたアカウントは必ず config.json にある」状態を保つ。取得のたびに（`--once` も）、設定に無いアカウントをメールの頭文字ラベルで末尾に書き足す（`AppConfig.registerAccounts`）。書く直前にファイルを読み直して足すだけで、読めない（壊れている）ときは触らない。持ち主不明（"?" 始まり）は足さない
+  - アカウントは `email`（識別子）と任意の `emoji`・`label`。メニューバーは emoji → label → メールの頭文字。パネルの見出しは emoji ＋（label、無ければメールの @ より前。別のメールと重なるときだけ全体）。旧キー `name` も `email` として読む（書くときは `email`）
+  - 「観測できたアカウントは必ず config.json にある」状態を保つ。取得のたびに（`--once` も）、設定に無いアカウントを `email` だけで末尾に書き足す（`AppConfig.registerAccounts`）。書く直前にファイルを読み直して足すだけで、読めない（壊れている）ときは触らない。持ち主不明（"?" 始まり）は足さない
 - `Core/ActivityLog.swift` `activity.log` に切り替え検知と取得結果を追記（トークンは書かない）。テストでは `ActivityLog.url` を一時ディレクトリに向けること
 - `UsageStore.swift` UI 用。5分ごとの全取得（置き場所もこのとき探し直す）、2秒ごとの切り替え検知（mtime が変わったときだけ `.claude.json` を読む。検知したら1秒待って取得、見送られたら5秒後と35秒後に取り直し）、パネルを開いたときの確認（直近の取得から15秒以上なら取得）、15秒ごとの推定値の再計算、`config.json` の変更の自動反映（ディレクトリを DispatchSource で監視 + 15秒ごとの mtime 確認。壊れた JSON は無視して前の設定を維持）
 - `App.swift` `AppDelegate`（ステータス項目とポップオーバー、右クリックメニュー「更新 / ログイン時に起動 / 終了」）と UI。パネルのフッターは取得時刻と「設定を開く」だけ。`Main.swift` から `NSApplication.run()` で起動
