@@ -1,7 +1,7 @@
 import Foundation
 
-/// 切り替えの検知や取得の結果を `~/.config/quotaback/activity.log` に残す（トークンは書かない）。
-/// 「自動で反映されなかった」ときに何が起きていたかを後から追えるように。
+/// Logs switch detection and fetch results to `~/.config/quotaback/activity.log` (never tokens).
+/// So we can trace what happened when something didn't update automatically.
 enum ActivityLog {
     static var url = AppConfig.directory.appendingPathComponent("activity.log")
     static let maxBytes = 512 * 1024
@@ -14,7 +14,7 @@ enum ActivityLog {
             try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             if let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int, size > maxBytes,
                let data = try? Data(contentsOf: url) {
-                // 古い半分を捨てる（行の途中から始まらないよう次の改行まで進める）
+                // Drop the older half (advancing to the next newline so we don't start mid-line)
                 var tail = data.suffix(maxBytes / 2)
                 if let nl = tail.firstIndex(of: 0x0A) { tail = tail[tail.index(after: nl)...] }
                 try? Data(tail).write(to: url, options: .atomic)
@@ -29,7 +29,7 @@ enum ActivityLog {
         }
     }
 
-    /// テスト用: 書き込みの完了を待つ
+    /// For tests: waits for pending writes
     static func flush() { queue.sync {} }
 
     private static let stamp: ISO8601DateFormatter = {

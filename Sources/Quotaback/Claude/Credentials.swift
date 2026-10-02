@@ -1,14 +1,14 @@
 import Foundation
 import CryptoKit
 
-/// Claude Code のログイン1つ分の認証情報の置き場所。
-/// 1つの置き場所には「最後にログインしたアカウント」のトークンしか入らない。
+/// Where one Claude Code login's credentials live.
+/// A location only holds the token of the account that logged in last.
 struct CredentialSource: Codable, Hashable, Identifiable {
-    var keychainService: String?   // 例: "Claude Code-credentials"
-    var credentialsPath: String?   // 例: "~/.claude-work/.credentials.json"
-    /// 持ち主のメールアドレスを読む `.claude.json`。省略時は置き場所から推定
+    var keychainService: String?   // e.g. "Claude Code-credentials"
+    var credentialsPath: String?   // e.g. "~/.claude-work/.credentials.json"
+    /// The `.claude.json` to read the owner's email from. Inferred from the location when omitted
     var profilePath: String?
-    /// `.claude.json` で判定できないときの手動指定
+    /// Manual override when `.claude.json` can't tell
     var email: String?
 
     static let defaultKeychain = CredentialSource(keychainService: "Claude Code-credentials")
@@ -20,13 +20,13 @@ struct CredentialSource: Codable, Hashable, Identifiable {
 
     var description: String {
         if let s = keychainService { return "Keychain '\(s)'" }
-        return credentialsPath ?? "(未設定)"
+        return credentialsPath ?? L10n.notSet
     }
 
-    /// 持ち主を判定する `.claude.json` の場所。
-    /// - 既定の Keychain エントリ → `~/.claude.json`
+    /// Location of the `.claude.json` that identifies the owner.
+    /// - Default Keychain entry → `~/.claude.json`
     /// - `~/.claude/.credentials.json` → `~/.claude.json`
-    /// - `<dir>/.credentials.json` → `<dir>/.claude.json`（CLAUDE_CONFIG_DIR を分けている場合）
+    /// - `<dir>/.credentials.json` → `<dir>/.claude.json` (when using a separate CLAUDE_CONFIG_DIR)
     var resolvedProfilePath: String? {
         if let p = profilePath { return (p as NSString).expandingTildeInPath }
         if keychainService == Self.defaultKeychain.keychainService {
@@ -34,7 +34,7 @@ struct CredentialSource: Codable, Hashable, Identifiable {
         }
         if let c = credentialsPath {
             let dir = ((c as NSString).expandingTildeInPath as NSString).deletingLastPathComponent
-            // 既定の ~/.claude だけは .claude.json がホーム直下にある
+            // Only for the default ~/.claude does .claude.json live directly under home
             if dir == ("~/.claude" as NSString).expandingTildeInPath {
                 return ("~/.claude.json" as NSString).expandingTildeInPath
             }
@@ -45,14 +45,14 @@ struct CredentialSource: Codable, Hashable, Identifiable {
 }
 
 extension AppConfig {
-    /// 実際に読みに行く認証情報の置き場所
+    /// Credential locations actually read
     func effectiveSources(discovered: [CredentialSource]) -> [CredentialSource] {
         let candidates: [CredentialSource]
         if let sources {
             candidates = sources
         } else {
             let legacy = accounts.compactMap { a -> CredentialSource? in
-                // "Claude Code-credentials-<SUFFIX>" のような未記入のプレースホルダは無視
+                // Ignore unfilled placeholders like "Claude Code-credentials-<SUFFIX>"
                 if let s = a.keychainService, !s.contains("<") { return CredentialSource(keychainService: s) }
                 if let c = a.credentialsPath { return CredentialSource(credentialsPath: c) }
                 return nil
@@ -64,10 +64,10 @@ extension AppConfig {
     }
 }
 
-/// 認証情報の読み取り（読み取り専用。リフレッシュはしない）
+/// Reading credentials (read-only; never refreshes)
 extension CredentialSource {
-    /// このマシンにある認証情報の置き場所を探す（存在確認だけで中身は読まない）
-    /// - 既定の Keychain エントリ
+    /// Finds credential locations on this machine (checks existence only; doesn't read contents)
+    /// - The default Keychain entry
     /// - `$CLAUDE_CONFIG_DIR/.credentials.json`
     /// - `~/.claude*/.credentials.json`
     static func discover(environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -91,7 +91,7 @@ extension CredentialSource {
         return found.filter { seen.insert($0.id).inserted }
     }
 
-    /// この置き場所に今ログインしているアカウントのメールアドレス
+    /// Email of the account currently logged in at this location
     func ownerEmail() -> String? {
         if let email { return email.lowercased() }
         guard let path = resolvedProfilePath,
@@ -99,7 +99,7 @@ extension CredentialSource {
         return Self.email(fromProfile: data)
     }
 
-    /// `.claude.json` の `oauthAccount.emailAddress`
+    /// `oauthAccount.emailAddress` in `.claude.json`
     static func email(fromProfile data: Data) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let account = json["oauthAccount"] as? [String: Any],
@@ -107,9 +107,9 @@ extension CredentialSource {
         return email.lowercased()
     }
 
-    /// Claude Code が保存している credentials JSON から accessToken を取り出す。
-    /// 期限切れの場合、ここで refresh はしない（refresh token のローテーションで
-    /// Claude Code 側のログインを壊す可能性があるため）。
+    /// Extracts accessToken from the credentials JSON that Claude Code stores.
+    /// Expired tokens are not refreshed here (rotating the refresh token could
+    /// break Claude Code's own login).
     func accessToken() throws -> String {
         let raw: Data
         if let service = keychainService {
@@ -117,17 +117,17 @@ extension CredentialSource {
         } else if let path = credentialsPath {
             let expanded = (path as NSString).expandingTildeInPath
             guard let d = FileManager.default.contents(atPath: expanded) else {
-                throw UsageError.credentials("\(path) が見つかりません")
+                throw UsageError.credentials(L10n.notFound(path))
             }
             raw = d
         } else {
-            throw UsageError.credentials("keychainService か credentialsPath を設定してください")
+            throw UsageError.credentials(L10n.setKeychainOrPath)
         }
 
         guard let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
               let oauth = json["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String else {
-            throw UsageError.credentials("claudeAiOauth.accessToken がありません")
+            throw UsageError.credentials(L10n.accessTokenMissing)
         }
         if let expiresAt = oauth["expiresAt"] as? Double,
            Date(timeIntervalSince1970: expiresAt / 1000) < Date() {
@@ -136,13 +136,13 @@ extension CredentialSource {
         return token
     }
 
-    /// 取り違え検知用のトークンのハッシュ（先頭16桁）。メモリ上でだけ使い、保存しない
+    /// Token hash (first 16 hex digits) for mix-up detection. Used in memory only, never stored
     static func fingerprint(_ token: String) -> String {
         SHA256.hash(data: Data(token.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// `security` コマンド経由で読む（初回に Keychain のアクセス許可ダイアログが出る。
-    /// 「常に許可」を選べば以降は出ない）
+    /// Reads via the `security` command (the first read shows a Keychain access prompt;
+    /// choose "Always Allow" and it won't appear again)
     private static func readKeychain(service: String) throws -> Data {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/security")

@@ -1,8 +1,8 @@
 import Foundation
 
-/// 使用量の取得元（プロバイダ）。Claude と Codex。
+/// A usage source (provider): Claude or Codex.
 protocol UsageProvider {
-    /// 設定から、観測しに行く対象（認証情報の置き場所）を列挙する
+    /// Lists the targets to observe (credential locations) from the config
     func targets(config: AppConfig) -> [PollTarget]
 }
 
@@ -14,24 +14,24 @@ enum Providers {
     }
 }
 
-/// 観測対象の1つ（例: Keychain の1エントリ）。ここに入っているのは
-/// 「その時点でログインしているアカウント」のものだけ、という前提で扱う。
+/// One observation target (e.g. a Keychain entry). It is assumed to hold
+/// only the account that is logged in at that moment.
 struct PollTarget: @unchecked Sendable {
     let provider: String
     let id: String
     let description: String
-    /// 今の持ち主（アカウント識別子）。ネットワークや Keychain に触れず安価に読めること
+    /// Current owner (account identifier). Must be cheap to read, without network or Keychain access
     let owner: @Sendable () -> String?
-    /// 持ち主の判定元の更新時刻。ログイン切り替えの検知に使う（変化したら owner を読み直す）
+    /// Modification time of the owner source. Used to detect login switches (owner is re-read when it changes)
     let ownerStamp: @Sendable () -> Date?
     let fetch: @Sendable () async throws -> FetchedUsage
 }
 
 struct FetchedUsage {
     var windows: [WindowObservation]
-    /// 使った認証情報のハッシュ（メモリ上でだけ使う。保存しない）
+    /// Hash of the credentials used (kept in memory only, never stored)
     var credentialFingerprint: String? = nil
-    /// 値がいつ時点のものか。API で今取ったなら nil（= 取得時刻）。
-    /// ログなどから読んだ過去の値なら、その記録時刻
+    /// When the values are from. nil if just fetched from the API (= fetch time).
+    /// For past values read from logs etc., the time they were recorded
     var asOf: Date? = nil
 }

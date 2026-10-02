@@ -1,13 +1,13 @@
 import Foundation
 import SwiftUI
 
-/// UI 用。観測・推定は UsageEngine に任せ、表示用の値を公開するだけ。
+/// For the UI. Leaves observing and estimating to UsageEngine and only publishes values for display.
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var config: AppConfig
     @Published private(set) var accounts: [AccountView] = []
     @Published private(set) var refreshing = false
-    /// config.json を読めなかったときのメッセージ（直前の設定のまま動き続ける）
+    /// Message when config.json can't be read (keeps running with the previous settings)
     @Published private(set) var configError: String?
 
     private let engine = UsageEngine(log: ObservationLog.load())
@@ -20,19 +20,20 @@ final class UsageStore: ObservableObject {
     private var configWatcher: DispatchSourceFileSystemObject?
     private var configStamp: Date?
 
-    /// 推定値の再計算（リセット時刻の通過など）と config.json の確認の間隔
+    /// Interval for recomputing estimates (e.g. passing a reset time) and checking config.json
     static let watchInterval: TimeInterval = 15
-    /// ログイン切り替えの確認間隔。`.claude.json` の mtime を見るだけで、変わったときだけ中身を読む
+    /// Interval for checking login switches. Only looks at the mtime of `.claude.json` and reads it only when it changed
     static let switchCheckInterval: TimeInterval = 2
-    /// 切り替えを検知してから取得するまでの待ち（認証情報の書き込みが追いつくのを待つ）
+    /// Delay between detecting a switch and fetching (lets the credential write catch up)
     static let switchDebounce: UInt64 = 1_000_000_000
-    /// 切り替え途中で見送ったときの取り直し（秒後）。2回目は取り違え判定が確定する時間の後
+    /// Retries (seconds later) after skipping mid-switch. The second one comes after the mix-up check settles
     static let retryDelays: [TimeInterval] = [5, UsageEngine.conflictSettle + 5]
-    /// パネルを開いたとき、直近の取得がこれより古ければ取り直す
+    /// When the panel opens, refetch if the last fetch is older than this
     static let staleOnOpen: TimeInterval = 15
 
     init() {
         config = AppConfig.load()
+        L10n.apply(config.language)
         configStamp = AppConfig.modificationDate()
         watchConfigDirectory()
         start()
@@ -57,7 +58,7 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// パネルを開いたとき。切り替えを今すぐ確認し、値が古ければ取り直す
+    /// When the panel opens: check for a switch now, and refetch if values are stale
     func panelOpened() {
         Task {
             await checkSwitch(reason: "panel")
@@ -67,10 +68,10 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    // MARK: - config.json の変更を反映
+    // MARK: - Applying config.json changes
 
-    /// エディタの保存（一時ファイル → rename）でファイル自体の監視は外れるので、ディレクトリを監視する。
-    /// 書き換えの方法によってはディレクトリのイベントが出ないので、watch() でも mtime を確認する。
+    /// Editors save via a temp file + rename, which breaks watching the file itself, so watch the directory.
+    /// Some ways of rewriting produce no directory event, so watch() also checks the mtime.
     private func watchConfigDirectory() {
         try? FileManager.default.createDirectory(at: AppConfig.directory, withIntermediateDirectories: true)
         let fd = open(AppConfig.directory.path, O_EVTONLY)
@@ -84,26 +85,29 @@ final class UsageStore: ObservableObject {
         configWatcher = source
     }
 
-    /// config.json が変わっていたら反映する。ラベルなど表示だけの変更なら取得し直さない
+    /// Applies config.json if it changed. Display-only changes such as labels don't trigger a refetch
     private func configMaybeChanged() {
         let stamp = AppConfig.modificationDate()
         guard stamp != configStamp else { return }
         configStamp = stamp
-        guard stamp != nil else { return }   // 保存の途中で一瞬消えている
+        guard stamp != nil else { return }   // Briefly missing in the middle of a save
         switch AppConfig.read() {
         case .success(let new):
             configError = nil
             guard new != config else { return }
             let refetch = new.needsRefetch(comparedTo: config)
+            // Error messages etc. are built at fetch time, so refetch when the language changes
+            let relocalize = new.language != config.language
+            L10n.apply(new.language)
             config = new
-            if refetch { start() } else { Task { await updateViews() } }
+            if refetch { start() } else if relocalize { refreshAll(reason: "language") } else { Task { await updateViews() } }
         case .failure(let error):
-            configError = "config.json を読めません（前の設定のまま）: \(error.localizedDescription)"
+            configError = L10n.configUnreadable(error.localizedDescription)
         }
     }
 
-    /// 観測できたのに config.json に無いアカウントを書き足す。ラベルを編集できるように、
-    /// 「観測されたアカウントは必ず設定にある」状態を保つ。取得先は変わらないので取り直さない
+    /// Adds observed accounts missing from config.json. Keeps every observed account in the config
+    /// so its label can be edited. Fetch targets don't change, so no refetch
     private func registerObservedAccounts() async {
         guard configError == nil,
               let new = AppConfig.registerAccounts(await engine.observedAccounts) else { return }
@@ -111,16 +115,16 @@ final class UsageStore: ObservableObject {
         config = new
     }
 
-    /// 全対象を取得する。置き場所（`CLAUDE_CONFIG_DIR` の追加など）もここで探し直す
+    /// Fetches all targets. Also rediscovers locations here (e.g. a newly added `CLAUDE_CONFIG_DIR`)
     func refreshAll(reason: String = "manual") {
         targets = Providers.targets(config: config)
         refresh(targets, reason: reason)
     }
 
-    /// - Parameter attempt: 切り替え途中で見送られた対象の取り直し回数
+    /// - Parameter attempt: how many times targets skipped mid-switch have been retried
     private func refresh(_ list: [PollTarget], reason: String, attempt: Int = 0) {
         guard !list.isEmpty else { return }
-        // 取得中に呼ばれたら、終わってからもう一度まとめて取る
+        // If called while fetching, fetch everything again once it's done
         guard !refreshing else { pending = true; return }
         refreshing = true
         Task {
@@ -144,7 +148,7 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// ログインが切り替わった対象だけすぐ取りに行く
+    /// Immediately fetches only the targets whose login switched
     private func checkSwitch(reason: String = "switch") async {
         let changed = await engine.changedTargets(targets)
         guard !changed.isEmpty else { return }

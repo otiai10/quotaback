@@ -1,25 +1,25 @@
 import Foundation
 
-/// 観測・記録・推定の本体。UI（UsageStore）と `--once` の両方から使う。
+/// Core of observing, recording and estimating. Used by both the UI (UsageStore) and `--once`.
 actor UsageEngine {
     private(set) var log: ObservationLog
-    /// 対象 → 直近に観測できたアカウント（= いまログイン中）
+    /// Target → the account last observed (= currently logged in)
     private var liveByTarget: [String: AccountKey] = [:]
-    /// 対象 → 直近の失敗（その時点の持ち主とメッセージ）
+    /// Target → the last failure (the owner at that time and the message)
     private var errorByTarget: [String: (AccountKey, String)] = [:]
-    /// 認証情報のハッシュ → それを最後に割り当てたアカウント（メモリ上のみ）
+    /// Credential hash → the account it was last assigned to (in memory only)
     private var fingerprintOwner: [String: AccountKey] = [:]
-    /// 割り当てと食い違ったハッシュ → 新しく名乗った持ち主と最初に見た時刻
+    /// Hash that conflicts with its assignment → the newly claimed owner and when it was first seen
     private var conflicts: [String: (owner: AccountKey, since: Date)] = [:]
-    /// アカウント → 最新バッチを取ったときの認証情報のハッシュ（取り違えの取り消し用）
+    /// Account → hash of the credentials its latest batch came from (to retract mix-ups)
     private var latestFingerprint: [AccountKey: String] = [:]
 
-    /// 食い違いを「本当の持ち主の変更」と認めるまでの時間。
-    /// `/login` で持ち主の情報と認証情報のどちらが先に書かれても、この間に両方そろう想定
+    /// How long a conflict must persist before it counts as a real owner change.
+    /// Whichever of the owner info and the credentials `/login` writes first, both should be in place by then
     static let conflictSettle: TimeInterval = 30
-    /// ログイン中のアカウントの値を「今の値（exact）」とみなせる観測からの経過時間
+    /// How long after an observation a logged-in account's value still counts as current (exact)
     static let freshness: TimeInterval = 10 * 60
-    /// 対象 → 前回確認した持ち主と判定元の更新時刻（切り替え検知用）
+    /// Target → the owner last checked and the mtime of its source (for switch detection)
     private var knownOwner: [String: String?] = [:]
     private var knownStamp: [String: Date?] = [:]
 
@@ -29,10 +29,10 @@ actor UsageEngine {
 
     enum Outcome {
         case recorded(ObservationBatch)
-        /// 取得はできたが、持ち主が確定できないので記録しなかった
+        /// Fetched, but not recorded because the owner couldn't be confirmed
         case skipped(String)
         case failed(String)
-        /// 持ち主は分かったが新しい観測が無かった
+        /// The owner is known but there was no new observation
         case unchanged(String)
 
         var summary: String {
@@ -74,26 +74,26 @@ actor UsageEngine {
         do {
             let fetched = try await t.fetch()
 
-            // ログイン切り替え中（持ち主の情報と認証情報は別々に更新される）の取り違えを防ぐ
+            // Avoid mix-ups during a login switch (the owner info and the credentials are updated separately)
             let after = t.owner()
             guard after == before else {
                 knownOwner[t.id] = after
                 liveByTarget[t.id] = nil
-                return Report(target: t, owner: before, outcome: .skipped("取得中に持ち主が変わった（\(before ?? "?") → \(after ?? "?")）"))
+                return Report(target: t, owner: before, outcome: .skipped(L10n.ownerChanged(before ?? "?", after ?? "?")))
             }
             let at = now()
             if let fp = fetched.credentialFingerprint {
                 if let prev = fingerprintOwner[fp], prev != key {
-                    // 同じ認証情報が別の持ち主を名乗った。切り替え途中かもしれないので一旦見送り、
-                    // しばらくしても同じ組み合わせなら新しい持ち主を正とする（書き込み順に依存しない）
+                    // The same credentials now claim a different owner. This may be mid-switch, so skip for now;
+                    // if the pairing persists, accept the new owner (independent of write order)
                     guard let c = conflicts[fp], c.owner == key,
                           at.timeIntervalSince(c.since) >= Self.conflictSettle else {
                         if conflicts[fp]?.owner != key { conflicts[fp] = (key, at) }
                         liveByTarget[t.id] = nil
                         return Report(target: t, owner: before,
-                                      outcome: .skipped("認証情報が \(prev.account) のものとして記録済み（切り替え途中の可能性）"))
+                                      outcome: .skipped(L10n.tokenBelongsTo(prev.account)))
                     }
-                    // 前の持ち主に記録したのは実はこのアカウントの値だった → 取り消す
+                    // What was recorded for the previous owner was actually this account's → retract it
                     if latestFingerprint[prev] == fp {
                         log.retractLatest(of: prev)
                         latestFingerprint[prev] = nil
@@ -111,7 +111,7 @@ actor UsageEngine {
             errorByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .recorded(batch))
         } catch UsageError.noObservation(let message) {
-            // ログインはしているが新しい値が無い。前回の観測は古いので下限として出る
+            // Logged in but no new value. The previous observation is stale, so it shows as a lower bound
             liveByTarget[t.id] = key
             errorByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .unchanged(message))
@@ -122,7 +122,7 @@ actor UsageEngine {
         }
     }
 
-    /// 判定元の更新時刻が変わり、かつ持ち主が変わった対象（＝ログインが切り替わった）
+    /// Targets whose source mtime changed and whose owner changed (= the login was switched)
     func changedTargets(_ targets: [PollTarget]) -> [PollTarget] {
         targets.filter { t in
             let stamp = t.ownerStamp()
@@ -141,22 +141,22 @@ actor UsageEngine {
 
     // MARK: - Views
 
-    /// emoji も label も無いときのメニューバーの表示。メールの頭文字、持ち主不明なら "?"
+    /// Menu bar text when there is neither emoji nor label: the first letter of the email, or "?" if the owner is unknown
     static func defaultLabel(for key: AccountKey) -> String {
         guard !key.account.hasPrefix("?"), let c = key.account.first else { return "?" }
         return String(c).uppercased()
     }
 
-    /// メールアドレスの @ より前（@ が無ければそのまま）
+    /// The part of the email before @ (the whole string if there is no @)
     static func localPart(_ email: String) -> String {
         guard let at = email.firstIndex(of: "@"), at != email.startIndex else { return email }
         return String(email[..<at])
     }
 
-    /// これまでに観測できたアカウント（config.json への書き足しに使う）
+    /// Accounts observed so far (used to add them to config.json)
     var observedAccounts: [AccountKey] { log.latest.keys.sorted() }
 
-    /// 表示用。設定にあるアカウント（順序どおり）＋観測やエラーで見つかったアカウント
+    /// For display: configured accounts (in order) + accounts found through observations or errors
     func accountViews(config: [AccountConfig], now: Date = Date()) -> [AccountView] {
         let live = Set(liveByTarget.values)
         var errors: [AccountKey: String] = [:]
@@ -166,7 +166,7 @@ actor UsageEngine {
         let extra = Set(log.latest.keys).union(errors.keys).subtracting(keys).sorted()
         keys += extra
 
-        // label が無いときのパネルの見出しは @ より前。別のメールと重なるならメールアドレス全体
+        // Without a label, the panel header is the part before @, or the full address if it collides with another email
         let localParts = Dictionary(grouping: Set(keys.map(\.account)), by: Self.localPart)
 
         return keys.map { key in
@@ -175,7 +175,7 @@ actor UsageEngine {
             let name = (localParts[local]?.count ?? 0) > 1 ? key.account : local
             let batch = log.latest[key]
             let isLive = live.contains(key)
-            // ログイン中でも、値そのものが古ければ（ログから読んだ過去の記録など）その後の使用は含まないので下限
+            // Even when logged in, an old value (e.g. a past record read from logs) excludes later usage, so it is a lower bound
             let isFresh = isLive && batch.map { now.timeIntervalSince($0.observedAt) <= Self.freshness } ?? false
             let windows = (batch?.windows ?? []).map { w in
                 Estimator.estimate(w, observedAt: batch!.observedAt, isLive: isFresh,
@@ -195,8 +195,8 @@ actor UsageEngine {
 
 struct AccountView: Identifiable, Hashable {
     let key: AccountKey
-    let label: String   // メニューバー用
-    let title: String   // パネルの見出し。emoji ＋ label（label が無ければメールの @ より前）
+    let label: String   // For the menu bar
+    let title: String   // Panel header: emoji + label (or the part of the email before @ without a label)
     let isLive: Bool
     let observedAt: Date?
     let source: String?
@@ -213,8 +213,8 @@ struct AccountView: Identifiable, Hashable {
         }
     }
 
-    /// 代表の枠: 利用上限枠のうち一番埋まっているもの（メニューバーの % はこの枠の値）。
-    /// 同じ値ならリセットが遠い方（回復に時間がかかる方が効く制約なので）
+    /// Representative window: the fullest usage-limit window (the menu bar % is this window's value).
+    /// On a tie, the one resetting later (the slower one to recover is the binding constraint)
     var representative: WindowEstimate? {
         windows.filter(\.window.isLimit).max { a, b in
             if a.lowerBound != b.lowerBound { return a.lowerBound < b.lowerBound }
@@ -222,7 +222,7 @@ struct AccountView: Identifiable, Hashable {
         }
     }
 
-    /// メニューバー用: 利用上限枠の下限値の最大
+    /// For the menu bar: the maximum lower bound among usage-limit windows
     var peak: Double? { representative?.lowerBound }
 
     var menuBarText: String {

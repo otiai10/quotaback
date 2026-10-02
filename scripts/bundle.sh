@@ -1,5 +1,5 @@
 #!/bin/sh
-# release ビルドして dist/Quotaback.app を組み立てる
+# Build in release mode and assemble dist/Quotaback.app
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -31,6 +31,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# ad-hoc 署名（SMAppService のログイン項目登録に署名が必要）
+# Ad-hoc signing (SMAppService login item registration requires a signature)
 codesign --force --sign - "$APP"
 echo "built $APP"

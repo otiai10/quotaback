@@ -1,21 +1,21 @@
 import Foundation
 
-/// Codex のセッションログから最新の `rate_limits` を読む。
+/// Reads the latest `rate_limits` from Codex session logs.
 ///
-/// 形式（codex-cli 0.147 で確認）:
+/// Format (checked with codex-cli 0.147):
 /// ```
 /// {"timestamp":"2026-10-01T09:26:48.152Z","type":"event_msg","payload":{"type":"token_count",
 ///   "rate_limits":{"primary":{"used_percent":3.0,"window_minutes":10080,"resets_at":1791125902},
 ///                  "secondary":null, ...}}}
 /// ```
-/// 古い版では `resets_at` の代わりに `resets_in_seconds`（記録時刻からの秒数）が入る。
+/// Older versions have `resets_in_seconds` (seconds from the record time) instead of `resets_at`.
 enum CodexRolloutReader {
     struct Event {
         let at: Date
         let windows: [WindowObservation]
     }
 
-    /// 新しいログから順に見て、最初に見つかった記録を返す。ログは大きいので末尾だけ読む
+    /// Scans logs newest first and returns the first record found. Only the tail is read, as logs are large
     static func latestRateLimits(sessions: URL, maxFiles: Int = 20, tailBytes: Int = 1 << 20) -> Event? {
         for file in recentRollouts(in: sessions).prefix(maxFiles) {
             guard let data = readTail(of: file, bytes: tailBytes),
@@ -51,7 +51,7 @@ enum CodexRolloutReader {
         return Event(at: at, windows: windows.sorted { ($0.cadenceSeconds ?? 0) < ($1.cadenceSeconds ?? 0) })
     }
 
-    /// 枠は primary / secondary の位置ではなく長さで区別する（プランや版で入れ替わるため）
+    /// Windows are told apart by length, not primary / secondary slot (which varies by plan and version)
     static func window(minutes raw: Int?, slot: String, percent: Double, resetsAt: Date?) -> WindowObservation {
         let minutes = raw.map(normalize)
         let key = minutes.map { "window_\($0)m" } ?? slot
@@ -75,13 +75,13 @@ enum CodexRolloutReader {
                                  isLimit: true, detail: nil, cadence: cadence)
     }
 
-    /// 2025年10月ごろの版は 299 / 10079 のように1分短く書いていたので、5h / 週に寄せる
+    /// Versions around October 2025 wrote one minute short (299 / 10079), so snap them to 5h / weekly
     static func normalize(_ minutes: Int) -> Int {
         for known in [300, 10080] where abs(minutes - known) <= 2 { return known }
         return minutes
     }
 
-    /// `sessions/YYYY/MM/DD/rollout-*.jsonl` を新しい順に。日付ディレクトリは名前順で新しいものから辿る
+    /// `sessions/YYYY/MM/DD/rollout-*.jsonl`, newest first. Date directories are walked newest first by name
     static func recentRollouts(in sessions: URL, limit: Int = 20) -> [URL] {
         let fm = FileManager.default
         func children(_ url: URL) -> [URL] {
@@ -114,7 +114,7 @@ enum CodexRolloutReader {
         let start = size > UInt64(bytes) ? size - UInt64(bytes) : 0
         try? h.seek(toOffset: start)
         guard var data = try? h.readToEnd() else { return nil }
-        // 途中から読んだら最初の（欠けた）行を捨てる
+        // When reading from the middle, drop the first (partial) line
         if start > 0, let nl = data.firstIndex(of: 0x0A) { data = data[data.index(after: nl)...] }
         return Data(data)
     }

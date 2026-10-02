@@ -20,7 +20,7 @@ final class ObservationLogTests: XCTestCase {
         var log = ObservationLog.load(directory: dir, now: t0)
         let reset = t0 + day
         log.record(batch(p, at: t0, [window(percent: 10, resetsAt: reset)]))
-        // 値が同じ（resets_at の秒未満の揺れだけ）→ 履歴には足さないが latest は更新
+        // Same values (only sub-second jitter in resets_at) → not added to history, but latest is updated
         log.record(batch(p, at: t0 + 300, [window(percent: 10, resetsAt: reset + 0.2)]))
         log.record(batch(p, at: t0 + 600, [window(percent: 12, resetsAt: reset)]))
         log.record(batch(w, at: t0 + 600, [window(percent: 50, resetsAt: reset)]))
@@ -31,7 +31,7 @@ final class ObservationLogTests: XCTestCase {
         let reloaded = ObservationLog.load(directory: dir, now: t0 + hour)
         XCTAssertEqual(reloaded.latest, log.latest)
         XCTAssertEqual(reloaded.history.count, 3)
-        XCTAssertEqual(reloaded.latest[p]?.observedAt, t0 + 600, "鮮度は再起動後も残る")
+        XCTAssertEqual(reloaded.latest[p]?.observedAt, t0 + 600, "freshness survives a restart")
     }
 
     func testPointsStayWithinResetCycle() throws {
@@ -57,7 +57,7 @@ final class ObservationLogTests: XCTestCase {
         XCTAssertEqual(ObservationLog.load(directory: dir, now: t0).latest[w]?.windows.first?.percent, 40)
 
         log.retractLatest(of: w)
-        XCTAssertNil(log.latest[w], "それより前が無ければ未観測に戻る")
+        XCTAssertNil(log.latest[w], "back to unobserved if there is nothing earlier")
     }
 
     func testPrunesOldHistory() throws {
@@ -69,7 +69,7 @@ final class ObservationLogTests: XCTestCase {
         let reloaded = ObservationLog.load(directory: dir, now: t0 + 40 * day)
         XCTAssertEqual(reloaded.history.map(\.observedAt), [t0 + 40 * day])
         let text = try String(contentsOf: reloaded.historyURL, encoding: .utf8)
-        XCTAssertEqual(text.split(separator: "\n").count, 1, "ファイルも間引かれる")
+        XCTAssertEqual(text.split(separator: "\n").count, 1, "the file is pruned too")
     }
 
     func testImportsLegacyStateJSON() throws {

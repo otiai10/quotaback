@@ -1,10 +1,10 @@
 import Foundation
 
-/// OpenAI Codex CLI の利用上限（`/status` の 5h limit / Weekly limit）。
+/// OpenAI Codex CLI usage limits (the 5h limit / Weekly limit in `/status`).
 ///
-/// Claude と違い API は呼ばない。Codex は応答のたびにセッションログ
-/// (`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`) に `token_count` イベントとして
-/// `rate_limits` を書くので、その最新の記録を「その時刻の観測」として読む。トークンは使わない。
+/// Unlike Claude, no API calls. On every response Codex writes `rate_limits` to its session log
+/// (`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`) as a `token_count` event,
+/// so the latest record is read as an observation at that time. No tokens are used.
 struct CodexProvider: UsageProvider {
     static let id = "codex"
 
@@ -21,7 +21,7 @@ struct CodexProvider: UsageProvider {
     }
 }
 
-/// Codex の設定ディレクトリ（既定 `~/.codex`、`$CODEX_HOME` で変更可）1つ分
+/// One Codex home directory (`~/.codex` by default, overridable with `$CODEX_HOME`)
 struct CodexHome: Sendable {
     let url: URL
 
@@ -48,7 +48,7 @@ struct CodexHome: Sendable {
 
     // MARK: - Owner
 
-    /// `auth.json` の `tokens.id_token`（JWT）の `email` クレーム。署名は検証しない（表示用の判定だけ）
+    /// The `email` claim of `tokens.id_token` (a JWT) in `auth.json`. The signature isn't verified (only used to tell accounts apart)
     func ownerEmail() -> String? {
         guard let data = FileManager.default.contents(atPath: authURL.path) else { return nil }
         return Self.email(fromAuth: data)
@@ -79,12 +79,12 @@ struct CodexHome: Sendable {
 
     func fetch() throws -> FetchedUsage {
         guard let event = CodexRolloutReader.latestRateLimits(sessions: sessionsURL) else {
-            throw UsageError.noObservation("Codex のセッションログに利用上限の記録がありません（codex を一度使うと記録されます）")
+            throw UsageError.noObservation(L10n.codexNoRecord)
         }
-        // ログには誰のセッションかが書かれていない。ログイン（とトークン更新）のたびに書かれる
-        // auth.json の last_refresh より前の記録は、今の持ち主のものとは限らないので使わない
+        // Logs don't say whose session they are. Records older than last_refresh in auth.json,
+        // which is written on every login (and token refresh), may not be the current owner's, so skip them
         if let since = lastRefresh() ?? authStamp(), event.at < since {
-            throw UsageError.noObservation("ログイン後の Codex の記録がまだありません（codex を一度使うと記録されます）")
+            throw UsageError.noObservation(L10n.codexNoRecordSinceLogin)
         }
         return FetchedUsage(windows: event.windows, asOf: event.at)
     }

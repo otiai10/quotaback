@@ -1,15 +1,15 @@
 import Foundation
 
-/// 表示するアカウント。どの認証情報が誰のものかは実行時に判定する（Claude なら `.claude.json` のメールアドレス）。
+/// An account to show. Which credentials belong to whom is decided at runtime (for Claude, the email in `.claude.json`).
 struct AccountConfig: Codable, Identifiable, Hashable {
-    var email: String              // アカウントの識別子（Claude も Codex もメールアドレス）
-    /// メニューバーに出す短い印（例: "🏈"）。パネルでは見出しの前に付ける
+    var email: String              // Account identifier (an email address for both Claude and Codex)
+    /// Short mark shown in the menu bar (e.g. "🏈"). Prefixes the header in the panel
     var emoji: String?
-    /// 表示名（例: "Personal"）。パネルにメールアドレスの代わりに出す。emoji が無ければメニューバーにも出す
+    /// Display name (e.g. "Personal"). Shown in the panel instead of the email; also in the menu bar if there is no emoji
     var label: String?
-    /// 省略時は "claude"
+    /// Defaults to "claude"
     var provider: String?
-    // 旧形式の互換用。指定されていれば Claude の認証情報の置き場所 (CredentialSource) として扱う
+    // Legacy format. If set, treated as a Claude credential location (CredentialSource)
     var keychainService: String?
     var credentialsPath: String?
 
@@ -28,7 +28,7 @@ struct AccountConfig: Codable, Identifiable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case email, emoji, label, provider, keychainService, credentialsPath
-        case name   // 旧形式: email と同じ意味
+        case name   // Legacy key: same as email
     }
 
     init(from decoder: Decoder) throws {
@@ -38,7 +38,7 @@ struct AccountConfig: Codable, Identifiable, Hashable {
         } else {
             self.email = try c.decode(String.self, forKey: .name)
         }
-        // 空文字は未設定と同じ
+        // An empty string means unset
         emoji = try c.decodeIfPresent(String.self, forKey: .emoji).flatMap { $0.isEmpty ? nil : $0 }
         label = try c.decodeIfPresent(String.self, forKey: .label).flatMap { $0.isEmpty ? nil : $0 }
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
@@ -58,9 +58,11 @@ struct AccountConfig: Codable, Identifiable, Hashable {
 }
 
 struct AppConfig: Codable, Equatable {
+    /// Display language, "en" or "ja". Defaults to English
+    var language: String?
     var refreshSeconds: Int
     var accounts: [AccountConfig]
-    /// Claude の認証情報の置き場所。省略時は accounts[] の旧形式指定 + 自動検出 (`CredentialSource.discover()`)
+    /// Claude credential locations. If omitted, legacy entries in accounts[] plus auto-discovery (`CredentialSource.discover()`)
     var sources: [CredentialSource]?
 
     static let directory = FileManager.default.homeDirectoryForCurrentUser
@@ -69,11 +71,11 @@ struct AppConfig: Codable, Equatable {
 
     static let fallback = AppConfig(
         refreshSeconds: 300,
-        // 観測できたアカウントは、メールの頭文字をラベルにして自動で書き足される
+        // Observed accounts are appended automatically
         accounts: []
     )
 
-    /// 設定ファイルを読む。無ければデフォルトを書き出してそれを返す。
+    /// Reads the config file. If it doesn't exist, writes the default and returns it.
     static func load() -> AppConfig {
         if case .success(let cfg) = read() { return cfg }
         if !FileManager.default.fileExists(atPath: path.path) {
@@ -85,7 +87,7 @@ struct AppConfig: Codable, Equatable {
         return fallback
     }
 
-    /// 設定ファイルを読む。無い・壊れているときは失敗を返す（編集途中の書き間違いで設定を失わないように）
+    /// Reads the config file. Fails if it is missing or broken (so a typo mid-edit doesn't wipe the settings)
     static func read(from url: URL = path) -> Result<AppConfig, Error> {
         Result {
             let data = try Data(contentsOf: url)
@@ -93,15 +95,15 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
-    /// 変わったときに取り直しが必要か（取得先や間隔が変わった）。ラベルだけなら不要
+    /// Whether a change needs a refetch (sources or interval changed). Not for label-only changes
     func needsRefetch(comparedTo other: AppConfig) -> Bool {
         refreshSeconds != other.refreshSeconds
             || effectiveSources(discovered: []) != other.effectiveSources(discovered: [])
             || accounts.map(\.key) != other.accounts.map(\.key)
     }
 
-    /// 観測できたのに設定に無いアカウントを末尾に足したもの。足すものが無ければ nil。
-    /// emoji・label は書かない（パネルにはメールアドレスが出る）。持ち主が分からないもの（"?" 始まり）は足さない
+    /// This config with observed accounts that are missing from it appended. nil if nothing to add.
+    /// emoji and label are left out (the panel shows the email). Unknown owners (starting with "?") are skipped
     func addingAccounts(_ keys: [AccountKey]) -> AppConfig? {
         let existing = Set(accounts.map(\.key))
         let missing = Set(keys).subtracting(existing)
@@ -116,8 +118,8 @@ struct AppConfig: Codable, Equatable {
         return new
     }
 
-    /// 観測できたアカウントを config.json に書き足す。書き足したらその設定を返す。
-    /// 直前にファイルを読み直して、それに足す（ユーザーの編集を消さない）。読めないときは触らない
+    /// Appends observed accounts to config.json. Returns the new config if anything was added.
+    /// Re-reads the file right before and appends to it (keeping user edits). Leaves it alone if it can't be read
     static func registerAccounts(_ keys: [AccountKey], at url: URL = path) -> AppConfig? {
         guard case .success(let current) = read(from: url),
               let new = current.addingAccounts(keys) else { return nil }

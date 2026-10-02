@@ -14,7 +14,7 @@ func window(_ key: String = "weekly_all", percent: Double, resetsAt: Date?,
                       isLimit: isLimit, detail: nil, cadence: cadence)
 }
 
-/// 秒単位に丸めた日時（ISO8601 で保存すると秒未満が落ちるため）
+/// A date rounded to whole seconds (ISO8601 storage drops sub-seconds)
 func date(_ seconds: TimeInterval) -> Date { Date(timeIntervalSince1970: seconds.rounded()) }
 
 let t0 = date(1_790_000_000)
