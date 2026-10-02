@@ -51,6 +51,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - `Main.swift` エントリポイント。`--once` でアプリと同じ経路で1回観測・記録して結果と推定を表示
 - `Tests/QuotabackTests` パーサー、認証情報、推定、保存、エンジン（取り違え防止・切り替え検知）のテスト
 - `scripts/bundle.sh` release ビルド → `dist/Quotaback.app`（LSUIElement、ad-hoc 署名）
+- `Makefile` `make install` で bundle.sh → `~/Applications/Quotaback.app` に置き換え（`PREFIX` で変更可）。起動中なら終了させて、置き換え後に起動し直す。`make uninstall` もある
 
 ## 観測と推定
 ログインしていないアカウントは取得しに行けないので、「最後に観測できた値」を頼りにする。**保存するのは観測した事実だけ、表示は毎回推定し直す。**
