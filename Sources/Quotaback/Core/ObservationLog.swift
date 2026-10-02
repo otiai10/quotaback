@@ -1,8 +1,8 @@
 import Foundation
 
-/// 観測の保存先。
-/// - `latest.json`: アカウントごとの最新バッチ（毎回上書き。再起動しても鮮度が分かるように）
-/// - `observations.jsonl`: 値が変わったときだけ追記する履歴（消費ペースの推定用、古いものは間引く）
+/// Where observations are stored.
+/// - `latest.json`: the latest batch per account (overwritten each time, so freshness survives restarts)
+/// - `observations.jsonl`: history appended only when values change (for pace projection; old entries are pruned)
 struct ObservationLog {
     private(set) var latest: [AccountKey: ObservationBatch] = [:]
     private(set) var history: [ObservationBatch] = []
@@ -12,7 +12,7 @@ struct ObservationLog {
 
     var latestURL: URL { directory.appendingPathComponent("latest.json") }
     var historyURL: URL { directory.appendingPathComponent("observations.jsonl") }
-    /// 旧形式（Snapshot）の保存先。初回だけ取り込む
+    /// Legacy (Snapshot) store. Imported once
     var legacyURL: URL { directory.appendingPathComponent("state.json") }
 
     init(directory: URL = AppConfig.directory) {
@@ -39,7 +39,7 @@ struct ObservationLog {
         return log
     }
 
-    /// state.json（アカウントのメール → Snapshot）を Claude の観測として取り込む
+    /// Imports state.json (account email → Snapshot) as Claude observations
     private mutating func importLegacy() {
         struct LegacySnapshot: Decodable {
             struct Window: Decodable {
@@ -66,7 +66,7 @@ struct ObservationLog {
 
     // MARK: - Record
 
-    /// 観測を記録する。latest は常に更新、history は値かリセット時刻が変わったときだけ追記。
+    /// Records an observation. latest is always updated; history is appended only when values or reset times change.
     mutating func record(_ batch: ObservationBatch) {
         let previous = history.last { $0.account == batch.account } ?? latest[batch.account]
         latest[batch.account] = batch
@@ -77,7 +77,7 @@ struct ObservationLog {
         }
     }
 
-    /// 取り違えて記録した最新バッチを取り消し、それより前の観測に戻す
+    /// Retracts a latest batch recorded for the wrong account and falls back to the previous observation
     mutating func retractLatest(of account: AccountKey) {
         guard let bad = latest[account] else { return }
         let before = history.count
@@ -87,7 +87,7 @@ struct ObservationLog {
         saveLatest()
     }
 
-    /// 枠の構成・値・リセット時刻（分単位）が同じなら同じとみなす
+    /// Same windows, values and reset times (to the minute) count as the same
     static func sameValues(_ a: ObservationBatch, _ b: ObservationBatch) -> Bool {
         guard a.windows.count == b.windows.count else { return false }
         return zip(a.windows, b.windows).allSatisfy { x, y in
@@ -95,7 +95,7 @@ struct ObservationLog {
         }
     }
 
-    /// 同じリセット周期か。resets_at は取得のたびに秒未満が揺れるので分単位で比べる
+    /// Whether it's the same reset period. resets_at jitters below a second between fetches, so compare by minute
     static func sameCycle(_ a: Date?, _ b: Date?) -> Bool {
         switch (a, b) {
         case (nil, nil): return true
@@ -104,7 +104,7 @@ struct ObservationLog {
         }
     }
 
-    /// ある枠の、同じリセット周期内の履歴（古い順）。最新の観測も含む
+    /// History of a window within the same reset period (oldest first), including the latest observation
     func points(account: AccountKey, window: WindowObservation) -> [(Date, Double)] {
         var pts: [(Date, Double)] = history.compactMap { b in
             guard b.account == account,

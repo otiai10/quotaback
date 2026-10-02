@@ -6,7 +6,7 @@ enum UsageClient {
 
     // MARK: - Fetch
 
-    /// - Parameter rawName: 生レスポンスの保存ファイル名に使う（アカウントのメールなど）
+    /// - Parameter rawName: used in the file name of the saved raw response (e.g. the account email)
     static func fetch(token: String, rawName: String) async throws -> [UsageWindow] {
         var req = URLRequest(url: endpoint)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -23,18 +23,18 @@ enum UsageClient {
         return try parse(data)
     }
 
-    /// デバッグ用に生レスポンスを保存（非公式APIなので形式が変わったときに確認できるように）
+    /// Saves the raw response for debugging (the API is unofficial, so we can check when the format changes)
     private static func saveRawResponse(_ data: Data, name: String) {
         let safe = name.replacingOccurrences(of: "/", with: "_")
         let url = AppConfig.directory.appendingPathComponent("last-response-\(safe).json")
         try? data.write(to: url)
     }
 
-    /// `limits` 配列（/usage の表示項目そのもの）を優先して読む。
-    /// 無ければ「utilization を持つトップレベルのオブジェクト」を全部枠として拾う旧方式にフォールバック。
+    /// Prefers the `limits` array (exactly the items /usage shows).
+    /// Otherwise falls back to the legacy way: every top-level object with `utilization` is a window.
     static func parse(_ data: Data) throws -> [UsageWindow] {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw UsageError.parse("トップレベルがオブジェクトではありません")
+            throw UsageError.parse(L10n.notAnObject)
         }
         var windows: [UsageWindow]
         if let limits = root["limits"] as? [[String: Any]] {
@@ -70,7 +70,7 @@ enum UsageClient {
                            isLimit: group == "session" || group == "weekly")
     }
 
-    /// Usage credits。上限が設定されているときだけ出す
+    /// Usage credits. Only when a limit is set
     private static func parseSpend(_ v: Any?) -> UsageWindow? {
         guard let spend = v as? [String: Any],
               spend["enabled"] as? Bool == true,
@@ -78,7 +78,7 @@ enum UsageClient {
         let used = money(spend["used"])
         let percent = (spend["percent"] as? NSNumber)?.doubleValue
             ?? (used.map { $0.amount / limit.amount * 100 } ?? 0)
-        let detail = used.map { "\($0.formatted) / \(limit.formatted)" } ?? "上限 \(limit.formatted)"
+        let detail = used.map { "\($0.formatted) / \(limit.formatted)" } ?? L10n.creditLimit(limit.formatted)
         return UsageWindow(key: "spend", title: "Usage credits", utilization: percent,
                            resetsAt: nil, isLimit: false, detail: detail)
     }
@@ -123,7 +123,7 @@ enum UsageClient {
         }
     }
 
-    /// resets_at は取得のたびに "01:59:59.59" / "02:00:00.19" のように前後するので、最も近い分に丸める
+    /// resets_at jitters between fetches ("01:59:59.59" / "02:00:00.19"), so round to the nearest minute
     static func parseDate(_ v: Any?) -> Date? {
         guard let s = v as? String else { return nil }
         let f = ISO8601DateFormatter()
@@ -136,15 +136,15 @@ enum UsageClient {
     }
 }
 
-/// 利用上限の1つの枠 (5時間枠・週次枠など)
+/// One usage limit window (5-hour, weekly, etc.)
 struct UsageWindow: Identifiable, Hashable {
-    let key: String          // 一意キー (limits[].kind + scope、または旧形式のトップレベルキー名)
+    let key: String          // Unique key (limits[].kind + scope, or the legacy top-level key)
     let title: String
     let utilization: Double  // 0–100 (%)
     let resetsAt: Date?
-    /// プランの利用上限 (メニューバーのピーク値計算の対象)
+    /// A plan usage limit (counts toward the menu bar peak)
     let isLimit: Bool
-    var detail: String? = nil  // 例: "$57.97 / $200.00"
+    var detail: String? = nil  // e.g. "$57.97 / $200.00"
 
     var id: String { key }
 
@@ -157,7 +157,7 @@ struct UsageWindow: Identifiable, Hashable {
         self.detail = detail
     }
 
-    /// 旧形式 (トップレベルの five_hour / seven_day* など) のキー名から組み立てる
+    /// Builds from a legacy key name (top-level five_hour / seven_day*, etc.)
     init(key: String, utilization: Double, resetsAt: Date?) {
         self.init(key: key, title: Self.legacyTitle(key), utilization: utilization, resetsAt: resetsAt,
                   isLimit: key == "five_hour" || key.hasPrefix("seven_day"))

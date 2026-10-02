@@ -1,6 +1,6 @@
 import Foundation
 
-/// Claude Code のサブスクリプション利用上限（`/usage` と同じもの）
+/// Claude Code subscription usage limits (same as `/usage`)
 struct ClaudeProvider: UsageProvider {
     static let id = "claude"
 
@@ -27,7 +27,7 @@ struct ClaudeProvider: UsageProvider {
                           isLimit: w.isLimit, detail: w.detail, cadence: cadence(forWindowKey: w.key))
     }
 
-    /// 枠のキー（`limits[].kind[/scope]` または旧形式のトップレベルキー）からリセットの周期を決める
+    /// Decides the reset cadence from the window key (`limits[].kind[/scope]` or a legacy top-level key)
     static func cadence(forWindowKey key: String) -> Cadence {
         let kind = key.split(separator: "/").first.map(String.init) ?? key
         switch kind {
@@ -43,7 +43,7 @@ struct ClaudeProvider: UsageProvider {
 }
 
 extension CredentialSource {
-    /// 持ち主の判定元（`.claude.json`）の更新時刻
+    /// Modification time of the owner source (`.claude.json`)
     func ownerStamp() -> Date? {
         guard let path = resolvedProfilePath,
               let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }

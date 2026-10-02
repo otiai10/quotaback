@@ -2,7 +2,7 @@ import XCTest
 @testable import Quotaback
 
 final class UsageClientTests: XCTestCase {
-    /// 実レスポンス (2026-10, 個人アカウント) を縮めたもの
+    /// A trimmed real response (2026-10, personal account)
     static let real = """
     {
       "five_hour": {"utilization": 13.0, "resets_at": "2026-10-01T05:40:00.195640+00:00"},

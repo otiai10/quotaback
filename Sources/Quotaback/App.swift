@@ -4,8 +4,8 @@ import ServiceManagement
 
 import Combine
 
-/// メニューバーの項目とパネル。MenuBarExtra(.window) は中身が縮んでもウィンドウが縮まないので、
-/// NSStatusItem + NSPopover にして、パネルの大きさは NSHostingController の preferredContentSize に追従させる。
+/// Menu bar item and panel. MenuBarExtra(.window) doesn't shrink its window when the content shrinks,
+/// so this uses NSStatusItem + NSPopover and sizes the panel from NSHostingController's preferredContentSize.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var store: UsageStore!
@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var titleSubscription: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Dock に出さない常駐アプリにする（Info.plist の LSUIElement 相当）
+        // Run as an agent app without a Dock icon (same as LSUIElement in Info.plist)
         NSApp.setActivationPolicy(.accessory)
 
         store = UsageStore()
@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)])
     }
 
-    /// 左クリックでパネル、右クリック（または control＋クリック）でメニュー
+    /// Left click opens the panel, right click (or control-click) the menu
     @objc private func statusItemClicked() {
         let event = NSApp.currentEvent
         if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
@@ -56,19 +56,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func showMenu() {
         popover.performClose(nil)
         let menu = NSMenu()
-        let refresh = NSMenuItem(title: "更新", action: #selector(refreshNow), keyEquivalent: "r")
+        let refresh = NSMenuItem(title: L10n.refresh, action: #selector(refreshNow), keyEquivalent: "r")
         refresh.target = self
         refresh.isEnabled = !store.refreshing
         menu.addItem(refresh)
         if LoginItem.isAvailable {
-            let login = NSMenuItem(title: "ログイン時に起動", action: #selector(toggleLoginItem), keyEquivalent: "")
+            let login = NSMenuItem(title: L10n.launchAtLogin, action: #selector(toggleLoginItem), keyEquivalent: "")
             login.target = self
             login.state = LoginItem.isEnabled ? .on : .off
             menu.addItem(login)
         }
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "終了", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        // メニューを一時的に割り当ててクリックさせるのが、ステータス項目の下にメニューを出す定番の方法
+        menu.addItem(NSMenuItem(title: L10n.quit, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        // Temporarily assigning the menu and clicking is the usual way to show a menu under a status item
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             try LoginItem.set(!LoginItem.isEnabled)
         } catch {
             let alert = NSAlert(error: error)
-            alert.messageText = "ログイン時に起動を切り替えられませんでした"
+            alert.messageText = L10n.launchAtLoginFailed
             alert.runModal()
         }
     }
@@ -94,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.performClose(nil)
         } else {
             store.panelOpened()
-            // アクティブにしておかないと、外をクリックしても閉じない
+            // Without activating, clicking outside doesn't close it
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
@@ -103,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
 struct UsagePanel: View {
     @ObservedObject var store: UsageStore
-    /// 開閉を手で切り替えたアカウントだけ記録する。未指定ならログイン中は開き、未ログインは畳む
+    /// Only accounts toggled by hand are recorded. Otherwise logged-in accounts are expanded and others collapsed
     @State private var expandedOverride: [String: Bool] = [:]
 
     private func expandedBinding(for account: AccountView) -> Binding<Bool> {
@@ -113,10 +113,10 @@ struct UsagePanel: View {
         )
     }
 
-    /// アカウント一覧の実際の高さ（スクロール領域をそれに合わせるため）
+    /// Actual height of the account list (to size the scroll area to it)
     @State private var listHeight: CGFloat = 0
 
-    /// 画面に収まる一覧の最大の高さ。ボタン類（約120pt）とメニューバー・ポップオーバーの矢印の余白を引く
+    /// Max list height that fits on screen, minus the buttons (~120pt) and room for the menu bar and popover arrow
     private var maxListHeight: CGFloat {
         let screen = NSScreen.main?.visibleFrame.height ?? 800
         return max(200, screen - 160)
@@ -124,7 +124,7 @@ struct UsagePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // 開くと画面に収まらないことがあるので、一覧だけスクロールさせてボタン類は常に見せる
+            // Expanded lists may not fit on screen, so only the list scrolls and the buttons stay visible
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(store.accounts) { account in
@@ -145,16 +145,16 @@ struct UsagePanel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
-            // 更新・ログイン時に起動・終了はメニューバーの項目の右クリックメニューにある
+            // Refresh, Launch at Login and Quit live in the status item's right-click menu
             HStack(spacing: 6) {
                 if let t = store.accounts.filter(\.isLive).compactMap(\.observedAt).max() {
-                    Text("取得: \(t.formatted(date: .omitted, time: .shortened))")
+                    Text(L10n.fetchedAt(t.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(L10n.locale))))
                         .font(.caption.weight(.semibold).monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 if store.refreshing { ProgressView().controlSize(.mini) }
                 Spacer()
-                Button("設定を開く") {
+                Button(L10n.openSettings) {
                     NSWorkspace.shared.open(AppConfig.path)
                 }
                 .controlSize(.small)
@@ -170,7 +170,7 @@ private struct ListHeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
-/// ログイン時に起動（SMAppService）。.app バンドルから起動しているときだけ使える。
+/// Launch at Login (SMAppService). Only available when running from an .app bundle.
 enum LoginItem {
     static var isAvailable: Bool { Bundle.main.bundleURL.pathExtension == "app" }
     static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
@@ -185,7 +185,7 @@ struct AccountSection: View {
     let account: AccountView
     @Binding var expanded: Bool
 
-    /// 見出しの ▸ の幅と、▸ とラベルの間隔。中身はこの分だけ下げてラベルの位置に揃える
+    /// Width of the header's ▸ and its gap to the label. Content is indented by this to line up with the label
     private static let chevronWidth: CGFloat = 10
     private static let headerSpacing: CGFloat = 6
 
@@ -205,7 +205,7 @@ struct AccountSection: View {
                     WindowRow(estimate: w)
                 }
             } else if let rep = account.representative {
-                // 畳んでいるときは一番埋まっている枠だけ
+                // When collapsed, only the fullest window
                 WindowRow(estimate: rep)
             }
 
@@ -221,7 +221,7 @@ struct AccountSection: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } else if account.observedAt == nil, account.error == nil {
-                    Text("まだ観測していません（このアカウントで claude にログインすると取得されます）")
+                    Text(L10n.notObservedYet)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -230,7 +230,7 @@ struct AccountSection: View {
         }
     }
 
-    /// クリックで開閉
+    /// Click to expand or collapse
     private var header: some View {
         Button {
             expanded.toggle()
@@ -249,7 +249,7 @@ struct AccountSection: View {
                 Text(account.providerName)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
-                Text(account.isLive ? "ログイン中" : "未ログイン")
+                Text(account.isLive ? L10n.loggedIn : L10n.notLoggedIn)
                     .font(.caption2)
                     .foregroundStyle(account.isLive ? Color.green : Color.secondary)
             }
@@ -259,9 +259,11 @@ struct AccountSection: View {
     }
 
     private func observedText(_ t: Date) -> String {
-        let time = t.formatted(date: Calendar.current.isDateInToday(t) ? .omitted : .abbreviated, time: .shortened)
-        let ago = RelativeDateTimeFormatter().localizedString(for: t, relativeTo: Date())
-        return "最終観測: \(time)（\(ago)）· 以降の使用は含まない下限値"
+        let time = t.formatted(Date.FormatStyle(date: Calendar.current.isDateInToday(t) ? .omitted : .abbreviated,
+                                                time: .shortened).locale(L10n.locale))
+        let relative = RelativeDateTimeFormatter()
+        relative.locale = L10n.locale
+        return L10n.lastObserved(time, relative.localizedString(for: t, relativeTo: Date()))
     }
 }
 
@@ -295,15 +297,15 @@ struct WindowRow: View {
                     }
                     Spacer(minLength: 4)
                     if let eta = estimate.limitETA {
-                        // このペースで使い続けたら上限に達する見込みの時刻
-                        Label("\(Self.resetFormatter.string(from: eta)) 頃に上限", systemImage: "exclamationmark.triangle.fill")
+                        // When the limit would be hit at this pace
+                        Label(L10n.limitAround(Self.format(eta)), systemImage: "exclamationmark.triangle.fill")
                             .labelStyle(.titleAndIcon)
                             .font(.caption2.weight(.semibold).monospacedDigit())
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
-                            .help("このペースで使い続けた場合の見込み")
+                            .help(L10n.limitAroundHelp)
                     }
                 }
             }
@@ -314,7 +316,7 @@ struct WindowRow: View {
         switch estimate.value {
         case .exact(let v): return "\(Int(v.rounded()))%"
         case .atLeast(let v): return "≥\(Int(v.rounded()))%"
-        case .reset: return "リセット済み"
+        case .reset: return L10n.resetDone
         }
     }
 
@@ -325,11 +327,11 @@ struct WindowRow: View {
 
     private var resetText: String? {
         switch estimate.nextReset {
-        case .known(let d): return "Resets \(Self.resetFormatter.string(from: d))"
-        case .projected(let d): return "Resets \(Self.resetFormatter.string(from: d))（推定）"
+        case .known(let d): return L10n.resets(Self.format(d))
+        case .projected(let d): return L10n.resetsProjected(Self.format(d))
         case .unknown:
             if case .reset = estimate.value, case .rolling = window.cadence {
-                return "次のリセットは使い始めてから決まる"
+                return L10n.resetStartsOnUse
             }
             return nil
         }
@@ -343,9 +345,11 @@ struct WindowRow: View {
         }
     }
 
-    static let resetFormatter: DateFormatter = {
+    /// e.g. "10/3 (Sat) 14:00". The weekday follows the display language
+    static func format(_ date: Date) -> String {
         let f = DateFormatter()
+        f.locale = L10n.locale
         f.dateFormat = "M/d (E) HH:mm"
-        return f
-    }()
+        return f.string(from: date)
+    }
 }

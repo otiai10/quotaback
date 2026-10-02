@@ -1,9 +1,9 @@
 import Foundation
 
-/// プロバイダ + アカウントの識別子。保存・表示ともにこれで引く。
+/// Provider + account identifier. Used as the key for both storage and display.
 struct AccountKey: Hashable, Codable, Comparable {
-    var provider: String   // 例: "claude"
-    var account: String    // 例: メールアドレス（小文字）
+    var provider: String   // e.g. "claude"
+    var account: String    // e.g. an email address (lowercased)
 
     var id: String { "\(provider):\(account)" }
 
@@ -20,18 +20,18 @@ struct AccountKey: Hashable, Codable, Comparable {
     static func < (a: AccountKey, b: AccountKey) -> Bool { a.id < b.id }
 }
 
-/// 枠がいつリセットされるか。次のリセット時刻を推定できるかどうかを決める。
+/// When a window resets. Decides whether the next reset can be projected.
 enum Cadence: Codable, Hashable {
-    /// 一定周期（週次枠など）。過ぎたリセット時刻に周期を足して次を推定できる
+    /// Fixed period (weekly windows, etc.). The next reset is the past one plus the period
     case fixed(TimeInterval)
-    /// 毎月（Usage credits など）
+    /// Monthly (Usage credits, etc.)
     case monthly
-    /// 使い始めた時点から数える（5時間のセッション枠など）。リセット後の次の時刻は分からない
+    /// Counts from first use (the 5-hour session window, etc.). The next reset is unknown after a reset
     case rolling(TimeInterval)
     case unknown
 }
 
-/// 1回の観測で得た1つの枠の値。表示用の推定はここから毎回計算する（保存するのは事実だけ）。
+/// One window's value from one observation. Display estimates are recomputed from it each time (only facts are stored).
 struct WindowObservation: Codable, Hashable, Identifiable {
     var key: String
     var title: String
@@ -44,11 +44,11 @@ struct WindowObservation: Codable, Hashable, Identifiable {
     var id: String { key }
 }
 
-/// 1アカウントを1回観測した結果。最新のバッチがそのアカウントに今ある枠の一覧を決める。
+/// The result of observing one account once. The latest batch defines which windows the account has now.
 struct ObservationBatch: Codable, Hashable {
     var account: AccountKey
     var observedAt: Date
-    /// どこから観測したか（例: "Keychain 'Claude Code-credentials'"）
+    /// Where it was observed from (e.g. "Keychain 'Claude Code-credentials'")
     var source: String
     var windows: [WindowObservation]
 }

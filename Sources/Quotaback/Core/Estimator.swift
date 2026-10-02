@@ -1,21 +1,21 @@
 import Foundation
 
-/// 表示用の推定値。観測（事実）と今の時刻から毎回計算する。
+/// Estimate for display. Recomputed every time from observations (facts) and the current time.
 struct WindowEstimate: Identifiable, Hashable {
     enum Value: Hashable {
-        /// いまログイン中で、直近に観測できた値
+        /// Logged in now, and observed recently
         case exact(Double)
-        /// ログインしていない。観測後も他の端末などで使われている可能性があるので下限
+        /// Not logged in. A lower bound, since it may have been used elsewhere since
         case atLeast(Double)
-        /// 観測時のリセット時刻を過ぎた。0 から数え直し（ここからの使用量は分からない）
+        /// Past the observed reset time. Counts from 0 again (usage since then is unknown)
         case reset
     }
 
     enum NextReset: Hashable {
         case known(Date)
-        /// 周期から推定した時刻
+        /// Projected from the cadence
         case projected(Date)
-        /// 使い始めから数える枠なので分からない
+        /// Unknown, since the window counts from first use
         case unknown
     }
 
@@ -23,12 +23,12 @@ struct WindowEstimate: Identifiable, Hashable {
     let value: Value
     let nextReset: NextReset
     let observedAt: Date
-    /// 今のペースで使い続けたときに 100% に達する推定時刻（ログイン中・リセットより前・未来のときだけ）
+    /// Projected time to reach 100% at the current pace (only when logged in, before the reset and in the future)
     let limitETA: Date?
 
     var id: String { window.key }
 
-    /// メニューバーのピーク値計算用。リセット済みは 0
+    /// For the menu bar peak. 0 once reset
     var lowerBound: Double {
         switch value {
         case .exact(let v), .atLeast(let v): return v
@@ -51,7 +51,7 @@ enum Estimator {
         return WindowEstimate(window: w, value: value,
                               nextReset: nextReset(w, now: now, calendar: calendar),
                               observedAt: observedAt,
-                              // ペースはいま使っているアカウントにだけ意味がある
+                              // Pace only means something for the account in use
                               limitETA: passed || !w.isLimit || !isLive ? nil
                                   : limitETA(history: history, resetsAt: w.resetsAt).flatMap { $0 > now ? $0 : nil })
     }
@@ -75,8 +75,8 @@ enum Estimator {
         }
     }
 
-    /// 同じリセット周期内の観測から、最初と最後を結んだ直線で 100% 到達時刻を推定する。
-    /// 10分以上の幅・増加傾向・リセット前に到達、のときだけ返す。
+    /// Projects when 100% is reached by drawing a line through the first and last observations in the same reset period.
+    /// Only returned when they span 10+ minutes, usage is increasing, and 100% comes before the reset.
     static func limitETA(history: [(Date, Double)], resetsAt: Date?) -> Date? {
         guard let first = history.first, let last = history.last else { return nil }
         let span = last.0.timeIntervalSince(first.0)

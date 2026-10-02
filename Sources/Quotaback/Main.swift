@@ -1,6 +1,6 @@
 import AppKit
 
-/// エントリポイント。`--once` なら UI を出さずに1回観測して記録し、結果を標準出力に出す。
+/// Entry point. With `--once`, observes and records once without UI and prints the results to stdout.
 @main
 enum Main {
     static func main() {
@@ -13,34 +13,35 @@ enum Main {
         app.run()
     }
 
-    /// 動作確認用。アプリと同じ経路で観測・記録する（トークンは表示しない）
+    /// For checking behavior. Observes and records through the same path as the app (never prints tokens)
     private static func runOnce() -> Int32 {
         let config = AppConfig.load()
+        L10n.apply(config.language)
         let targets = Providers.targets(config: config)
         let done = DispatchSemaphore(value: 0)
         var failed = false
         Task.detached {
             let engine = UsageEngine(log: ObservationLog.load())
-            print("== 観測")
+            print(L10n.onceObserve)
             for r in await engine.refresh(targets) {
-                print("\(r.target.description) → \(r.owner ?? "持ち主不明")")
+                print("\(r.target.description) → \(r.owner ?? L10n.unknownOwner)")
                 switch r.outcome {
-                case .recorded(let b): print("  記録: \(b.windows.count) 枠")
-                case .skipped(let m): print("  スキップ: \(m)")
+                case .recorded(let b): print("  " + L10n.recorded(b.windows.count))
+                case .skipped(let m): print("  " + L10n.skipped(m))
                 case .failed(let m): failed = true; print("  error: \(m)")
-                case .unchanged(let m): print("  新しい観測なし: \(m)")
+                case .unchanged(let m): print("  " + L10n.noNewObservation(m))
                 }
             }
             var accounts = config.accounts
             if let new = AppConfig.registerAccounts(await engine.observedAccounts) {
                 let added = new.accounts.dropFirst(accounts.count)
-                print("\n== config.json に追加: " + added.map { "[\($0.label)] \($0.key.id)" }.joined(separator: ", "))
+                print("\n" + L10n.onceAdded + added.map { "\($0.key.id)" }.joined(separator: ", "))
                 accounts = new.accounts
             }
-            print("\n== 推定（保存済みの観測を含む）")
+            print("\n" + L10n.onceEstimates)
             for a in await engine.accountViews(config: accounts) {
-                print("[\(a.label)] \(a.key.account)  \(a.isLive ? "ログイン中" : "未ログイン")  \(a.menuBarText)")
-                if let t = a.observedAt { print("  最終観測: \(t.formatted()) (\(a.source ?? "-"))") }
+                print("[\(a.label)] \(a.key.account)  \(a.isLive ? L10n.loggedIn : L10n.notLoggedIn)  \(a.menuBarText)")
+                if let t = a.observedAt { print("  " + L10n.lastObservedShort(t.formatted()) + " (\(a.source ?? "-"))") }
                 for e in a.windows { print("  " + describe(e)) }
                 if let err = a.error { print("  error: \(err)") }
             }
@@ -55,16 +56,16 @@ enum Main {
         switch e.value {
         case .exact(let v): value = "\(Int(v.rounded()))%"
         case .atLeast(let v): value = "≥\(Int(v.rounded()))%"
-        case .reset: value = "リセット済み"
+        case .reset: value = L10n.resetDone
         }
         let reset: String
         switch e.nextReset {
         case .known(let d): reset = " resets \(d.formatted())"
-        case .projected(let d): reset = " resets \(d.formatted()) (推定)"
+        case .projected(let d): reset = " resets \(d.formatted())" + L10n.projectedSuffix
         case .unknown: reset = ""
         }
         let detail = e.window.detail.map { " (\($0))" } ?? ""
-        let eta = e.limitETA.map { " · 上限到達見込み \($0.formatted())" } ?? ""
+        let eta = e.limitETA.map { L10n.limitETA($0.formatted()) } ?? ""
         return "\(e.window.title) [\(e.window.key)]: \(value)\(detail)\(reset)\(eta)"
     }
 }

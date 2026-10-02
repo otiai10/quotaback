@@ -1,4 +1,4 @@
-# make install で ~/Applications/Quotaback.app に入れる（既にあれば置き換え）
+# make install puts Quotaback.app in ~/Applications (replacing any existing copy)
 PREFIX ?= $(HOME)/Applications
 APP     = Quotaback.app
 BUNDLE  = dist/$(APP)
@@ -15,7 +15,7 @@ test:
 bundle:
 	./scripts/bundle.sh
 
-# 起動中なら終了させてから置き換え、置き換え後に起動し直す
+# If running, quit it before replacing, then relaunch afterwards
 install: bundle
 	@running=; \
 	if pgrep -x Quotaback >/dev/null; then \

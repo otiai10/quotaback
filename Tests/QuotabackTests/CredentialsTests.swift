@@ -65,7 +65,7 @@ final class CredentialsTests: XCTestCase {
     }
 
     func testLegacyConfigMigratesToSources() throws {
-        // 以前の形式（accounts に keychainService を直接書く）
+        // Legacy format (keychainService written directly in accounts)
         let json = """
         {"refreshSeconds": 300, "accounts": [
           {"label": "P", "name": "personal@example.com", "keychainService": "Claude Code-credentials"},
@@ -76,12 +76,12 @@ final class CredentialsTests: XCTestCase {
         let extra = CredentialSource(credentialsPath: "/tmp/x/.credentials.json")
         let sources = cfg.effectiveSources(discovered: [.defaultKeychain, extra])
 
-        XCTAssertEqual(sources, [.defaultKeychain, extra], "プレースホルダは除外、重複は1つに")
+        XCTAssertEqual(sources, [.defaultKeychain, extra], "placeholders are dropped, duplicates merged")
         XCTAssertEqual(cfg.accounts.map(\.id), ["claude:personal@example.com", "claude:work@example.com"])
 
         var explicit = cfg
         explicit.sources = [extra]
-        XCTAssertEqual(explicit.effectiveSources(discovered: [.defaultKeychain]), [extra], "sources 指定時は自動検出しない")
+        XCTAssertEqual(explicit.effectiveSources(discovered: [.defaultKeychain]), [extra], "no discovery when sources is set")
     }
 
     func testFingerprintIsStableAndShort() {
@@ -121,13 +121,13 @@ final class AppConfigTests: XCTestCase {
 
     func testAddingAccountsAppendsOnlyMissingKnownOwners() throws {
         let new = try XCTUnwrap(base.addingAccounts([
-            AccountKey(provider: "claude", account: "P@example.com"),   // 既にある（大文字小文字は無視）
-            AccountKey(provider: "codex", account: "p@example.com"),    // 同じメールでもプロバイダ違いは別
-            AccountKey(provider: "claude", account: "?Keychain"),       // 持ち主不明は足さない
+            AccountKey(provider: "claude", account: "P@example.com"),   // Already present (case-insensitive)
+            AccountKey(provider: "codex", account: "p@example.com"),    // Same email, different provider: separate
+            AccountKey(provider: "claude", account: "?Keychain"),       // Unknown owners are not added
         ]))
         XCTAssertEqual(new.accounts.count, 3)
         XCTAssertEqual(new.accounts[2].key, AccountKey(provider: "codex", account: "p@example.com"))
-        XCTAssertNil(new.accounts[2].label, "ラベルは書かない（パネルにはメールアドレスが出る）")
+        XCTAssertNil(new.accounts[2].label, "no label is written (the panel shows the email)")
         XCTAssertNil(new.accounts[2].emoji)
         XCTAssertEqual(new.accounts[2].provider, "codex")
         XCTAssertNil(base.addingAccounts([AccountKey(provider: "claude", account: "w@example.com")]))
@@ -144,8 +144,8 @@ final class AppConfigTests: XCTestCase {
         XCTAssertEqual(new.accounts.first?.label, "🏈")
         let reread = try AppConfig.read(from: url).get()
         XCTAssertEqual(reread, new)
-        XCTAssertNil(reread.accounts[0].provider)   // Claude は provider を省略したまま
-        XCTAssertNil(AppConfig.registerAccounts([codex], at: url))   // 2回目は何もしない
+        XCTAssertNil(reread.accounts[0].provider)   // Claude keeps provider omitted
+        XCTAssertNil(AppConfig.registerAccounts([codex], at: url))   // Second time is a no-op
 
         let broken = #"{"refreshSeconds": 300, "accounts": ["#
         try Data(broken.utf8).write(to: url)
@@ -158,12 +158,12 @@ final class AppConfigTests: XCTestCase {
         let cfg = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
         XCTAssertEqual(cfg.accounts.map(\.email), ["p@example.com", "w@example.com"])
         XCTAssertEqual(cfg.accounts[0].label, "P")
-        XCTAssertNil(cfg.accounts[1].label, "空のラベルは未設定と同じ")
+        XCTAssertNil(cfg.accounts[1].label, "an empty label means unset")
         XCTAssertNil(cfg.accounts[1].emoji)
 
         let written = try XCTUnwrap(String(data: JSONEncoder().encode(cfg), encoding: .utf8))
         XCTAssertTrue(written.contains(#""email":"p@example.com""#))
-        XCTAssertFalse(written.contains(#""name""#), "旧形式のキーは書かない")
+        XCTAssertFalse(written.contains(#""name""#), "the legacy key is not written")
         XCTAssertFalse(written.contains(#""label":"""#))
         XCTAssertFalse(written.contains(#""emoji""#))
     }
@@ -171,7 +171,7 @@ final class AppConfigTests: XCTestCase {
     func testReadFailsOnBrokenJSONInsteadOfFallingBack() throws {
         let url = try tempDirectory().appendingPathComponent("config.json")
         try Data(#"{"refreshSeconds": 300, "accounts": [{"label": "🏠", "name": "p@example.com"#.utf8).write(to: url)
-        guard case .failure = AppConfig.read(from: url) else { return XCTFail("壊れた JSON は失敗にする") }
+        guard case .failure = AppConfig.read(from: url) else { return XCTFail("broken JSON must fail") }
 
         try Data(#"{"refreshSeconds": 300, "accounts": [{"label": "🏠", "name": "p@example.com"}]}"#.utf8).write(to: url)
         guard case .success(let cfg) = AppConfig.read(from: url) else { return XCTFail() }

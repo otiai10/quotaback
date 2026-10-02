@@ -1,14 +1,14 @@
 import XCTest
 @testable import Quotaback
 
-/// テスト用の観測対象。持ち主と認証情報を別々に差し替えられる（= /login の途中を再現できる）
+/// A test poll target. Owner and credentials can be swapped independently (to reproduce a /login in progress)
 final class FakeTarget: @unchecked Sendable {
     var owner: String?
     var stamp: Date?
     var token = "token-a"
     var percent: Double = 10
     var asOf: Date?
-    var ownerAfterFetch: String??   // 取得中に持ち主が変わる状況を再現
+    var ownerAfterFetch: String??   // Simulates the owner changing during a fetch
     var error: Error?
 
     init(owner: String?) { self.owner = owner; self.stamp = t0 }
@@ -45,7 +45,7 @@ final class UsageEngineTests: XCTestCase {
         let text = try String(contentsOf: ActivityLog.url, encoding: .utf8)
         XCTAssertTrue(text.contains("refresh(start) Fake owner=w@example.com → recorded weekly_all=10"), text)
         XCTAssertTrue(text.contains("switch Fake w@example.com → p@example.com"), text)
-        XCTAssertFalse(text.contains("token-"), "トークンは書かない")
+        XCTAssertFalse(text.contains("token-"), "tokens are not written")
     }
 
     func testActivityLogTrimsOldHalf() throws {
@@ -58,7 +58,7 @@ final class UsageEngineTests: XCTestCase {
         let text = try String(contentsOf: ActivityLog.url, encoding: .utf8)
         XCTAssertLessThan(text.utf8.count, ActivityLog.maxBytes)
         XCTAssertTrue(text.hasSuffix("newest\n"))
-        XCTAssertTrue(text.hasPrefix("x"), "行の途中から始まらない")
+        XCTAssertTrue(text.hasPrefix("x"), "does not start mid-line")
     }
 
     func engine() throws -> UsageEngine {
@@ -71,7 +71,7 @@ final class UsageEngineTests: XCTestCase {
         f.percent = 40
         await e.refresh([f.target], now: { t0 })
 
-        // P にログインし直す（持ち主も認証情報も更新された）
+        // Log back in to P (both owner and credentials updated)
         f.owner = "p@example.com"; f.token = "token-b"; f.percent = 15
         await e.refresh([f.target], now: { t0 + 600 })
 
@@ -86,37 +86,37 @@ final class UsageEngineTests: XCTestCase {
         f.percent = 40
         await e.refresh([f.target], now: { t0 })
 
-        // .claude.json は P に変わったが、Keychain のトークンはまだ W のまま
+        // .claude.json switched to P, but the Keychain token is still W's
         f.owner = "p@example.com"; f.percent = 41
         let reports = await e.refresh([f.target], now: { t0 + 600 })
 
         guard case .skipped = reports[0].outcome else { return XCTFail("\(reports[0].outcome)") }
         let views = await e.accountViews(config: accounts, now: t0 + 700)
-        XCTAssertNil(views[0].observedAt, "P には記録されない")
+        XCTAssertNil(views[0].observedAt, "nothing is recorded for P")
         XCTAssertEqual(views[1].windows.first?.window.percent, 40)
     }
 
-    /// Keychain が先に書き換わった場合: P の新しいトークンが W として記録されてしまうが、
-    /// 同じトークンが P を名乗り続ければ P を正とし、W に記録した分は取り消す
+    /// When the Keychain is updated first: P's new token gets recorded as W,
+    /// but if the same token keeps claiming P, P wins and the record under W is retracted
     func testCredentialWrittenBeforeOwnerIsCorrected() async throws {
         let e = try engine()
         let f = FakeTarget(owner: "w@example.com")
         f.percent = 40
         await e.refresh([f.target], now: { t0 })
-        // Keychain だけ P の新しいトークンになった状態で取得 → W として記録されてしまう
+        // Fetch with only the Keychain holding P's new token → recorded as W
         f.token = "token-p"; f.percent = 15
         await e.refresh([f.target], now: { t0 + 300 })
-        // .claude.json も P に
+        // .claude.json switches to P too
         f.owner = "p@example.com"
         let first = await e.refresh([f.target], now: { t0 + 310 })
         guard case .skipped = first[0].outcome else { return XCTFail("\(first[0].outcome)") }
-        // 少し後でも同じ組み合わせ → P として記録し、W の取り違えを取り消す
+        // Same pairing a bit later → record as P and retract the mix-up under W
         let second = await e.refresh([f.target], now: { t0 + 310 + UsageEngine.conflictSettle })
         guard case .recorded = second[0].outcome else { return XCTFail("\(second[0].outcome)") }
 
         let views = await e.accountViews(config: accounts, now: t0 + 400)
         XCTAssertEqual(views.map(\.menuBarText), ["P 15%", "W ≥40%"])
-        XCTAssertEqual(views[1].observedAt, t0, "W は取り違える前の観測に戻る")
+        XCTAssertEqual(views[1].observedAt, t0, "W reverts to its observation before the mix-up")
     }
 
     func testConflictIsNotAcceptedBeforeSettling() async throws {
@@ -165,9 +165,9 @@ final class UsageEngineTests: XCTestCase {
 
         let views = await e.accountViews(config: accounts, now: t0 + 2)
         XCTAssertEqual(views.count, 4)
-        XCTAssertEqual(views.dropFirst(2).map(\.label).sorted(), ["?", "X"], "持ち主不明は ?、設定に無いアカウントは頭文字")
-        XCTAssertEqual(views.first?.title, "P", "ラベルがあればメールアドレスの代わりに出す")
-        XCTAssertEqual(views.first { $0.label == "X" }?.title, "x", "ラベルが無ければメールの @ より前")
+        XCTAssertEqual(views.dropFirst(2).map(\.label).sorted(), ["?", "X"], "unknown owner is ?, unconfigured accounts use the initial")
+        XCTAssertEqual(views.first?.title, "P", "the label replaces the email when set")
+        XCTAssertEqual(views.first { $0.label == "X" }?.title, "x", "without a label, the part of the email before @")
     }
 
     func testEmojiIsMenuBarMarkAndPrefixesTitle() async throws {
@@ -176,7 +176,7 @@ final class UsageEngineTests: XCTestCase {
                       AccountConfig(email: "w@example.com", emoji: "💼"),
                       AccountConfig(email: "x@example.com", label: "Extra")]
         let views = await e.accountViews(config: config, now: t0)
-        XCTAssertEqual(views.map(\.label), ["🏈", "💼", "Extra"], "メニューバーは emoji、無ければ label")
+        XCTAssertEqual(views.map(\.label), ["🏈", "💼", "Extra"], "menu bar uses emoji, else label")
         XCTAssertEqual(views.map(\.title), ["🏈 Personal", "💼 w", "Extra"])
     }
 
@@ -184,7 +184,7 @@ final class UsageEngineTests: XCTestCase {
         let e = try engine()
         let config = [AccountConfig(email: "me@home.example"),
                       AccountConfig(email: "me@work.example"),
-                      AccountConfig(email: "me@home.example", provider: "codex"),   // 同じメールなら重なりではない
+                      AccountConfig(email: "me@home.example", provider: "codex"),   // The same email is not a collision
                       AccountConfig(email: "solo@example.com")]
         let views = await e.accountViews(config: config, now: t0)
         XCTAssertEqual(views.map(\.title), ["me@home.example", "me@work.example", "me@home.example", "solo"])
@@ -196,9 +196,9 @@ final class UsageEngineTests: XCTestCase {
         await e.refresh([f.target], now: { t0 })
 
         var changed = await e.changedTargets([f.target])
-        XCTAssertTrue(changed.isEmpty, "何も変わっていない")
+        XCTAssertTrue(changed.isEmpty, "nothing changed")
 
-        f.stamp = t0 + 10   // .claude.json が書き換わったが持ち主は同じ
+        f.stamp = t0 + 10   // .claude.json was rewritten but the owner is the same
         changed = await e.changedTargets([f.target])
         XCTAssertTrue(changed.isEmpty)
 
@@ -207,7 +207,7 @@ final class UsageEngineTests: XCTestCase {
         XCTAssertEqual(changed.map(\.id), ["fake"])
 
         changed = await e.changedTargets([f.target])
-        XCTAssertTrue(changed.isEmpty, "一度検知したら繰り返さない")
+        XCTAssertTrue(changed.isEmpty, "detected only once")
     }
 
     func testRepresentativeIsFullestLimitWindow() {
@@ -222,12 +222,12 @@ final class UsageEngineTests: XCTestCase {
         let session = est("session", 30, reset: t0 + hour)
         let weekly = est("weekly_all", 61, reset: t0 + 5 * day)
         let credits = est("spend", 90, reset: nil, isLimit: false)
-        XCTAssertEqual(view([session, weekly, credits]).representative?.window.key, "weekly_all", "credits は対象外")
+        XCTAssertEqual(view([session, weekly, credits]).representative?.window.key, "weekly_all", "credits are excluded")
         XCTAssertEqual(view([session, weekly]).peak, 61)
 
         let tieSession = est("session", 40, reset: t0 + hour)
         let tieWeekly = est("weekly_all", 40, reset: t0 + 5 * day)
-        XCTAssertEqual(view([tieSession, tieWeekly]).representative?.window.key, "weekly_all", "同値ならリセットが遠い方")
+        XCTAssertEqual(view([tieSession, tieWeekly]).representative?.window.key, "weekly_all", "on a tie, the later reset wins")
         XCTAssertNil(view([credits]).representative)
     }
 
@@ -235,19 +235,19 @@ final class UsageEngineTests: XCTestCase {
         let e = try engine()
         let f = FakeTarget(owner: "p@example.com")
         f.percent = 30
-        f.asOf = t0 - hour   // ログから読んだ1時間前の記録
+        f.asOf = t0 - hour   // A record from an hour ago, read from the log
         await e.refresh([f.target], now: { t0 })
 
         let p = await e.accountViews(config: accounts, now: t0)[0]
-        XCTAssertTrue(p.isLive, "ログイン中ではある")
-        XCTAssertEqual(p.observedAt, t0 - hour, "観測時刻は記録の時刻")
+        XCTAssertTrue(p.isLive, "still logged in")
+        XCTAssertEqual(p.observedAt, t0 - hour, "observed time is the record's time")
         XCTAssertEqual(p.windows.first?.value, .atLeast(30))
         XCTAssertEqual(p.menuBarText, "P ≥30%")
 
         f.asOf = t0 - 60
         await e.refresh([f.target], now: { t0 })
         let fresh = await e.accountViews(config: accounts, now: t0)[0]
-        XCTAssertEqual(fresh.windows.first?.value, .exact(30), "10分以内の記録なら今の値とみなす")
+        XCTAssertEqual(fresh.windows.first?.value, .exact(30), "a record within 10 minutes counts as current")
     }
 
     func testNoObservationKeepsAccountLiveWithoutError() async throws {
@@ -255,14 +255,14 @@ final class UsageEngineTests: XCTestCase {
         let f = FakeTarget(owner: "p@example.com")
         f.percent = 30
         await e.refresh([f.target], now: { t0 })
-        f.error = UsageError.noObservation("まだ記録なし")
+        f.error = UsageError.noObservation("no record yet")
         let r = await e.refresh([f.target], now: { t0 + hour })
         guard case .unchanged = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
 
         let p = await e.accountViews(config: accounts, now: t0 + hour)[0]
         XCTAssertTrue(p.isLive)
         XCTAssertNil(p.error)
-        XCTAssertEqual(p.windows.first?.value, .atLeast(30), "前回の観測は古いので下限")
+        XCTAssertEqual(p.windows.first?.value, .atLeast(30), "the previous observation is stale, so it is a lower bound")
     }
 
     func testResetTransitionsWithoutFetching() async throws {
