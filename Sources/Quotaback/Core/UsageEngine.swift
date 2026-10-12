@@ -183,6 +183,18 @@ actor UsageEngine {
         return String(email[..<at])
     }
 
+    /// For the Analytics window: cycle summaries and the current cycle of logged-in accounts (`views` from `accountViews`)
+    func analytics(views: [AccountView], now: Date = Date()) -> AnalyticsInput {
+        AnalyticsInput(
+            cycles: log.cycles,
+            titles: Dictionary(views.map { ($0.key, $0.title) }, uniquingKeysWith: { a, _ in a }),
+            live: views.filter(\.isLive).flatMap { v in
+                v.windows.map { AnalyticsInput.LiveWindow(account: v.key, estimate: $0,
+                                                          points: log.points(account: v.key, window: $0.window)) }
+            },
+            now: now)
+    }
+
     /// Accounts observed so far (used to add them to config.json)
     var observedAccounts: [AccountKey] { log.latest.keys.sorted() }
 

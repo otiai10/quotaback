@@ -12,14 +12,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var titleSubscription: AnyCancellable?
+    private var analytics: AnalyticsWindowController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as an agent app without a Dock icon (same as LSUIElement in Info.plist)
         NSApp.setActivationPolicy(.accessory)
 
         store = UsageStore()
+        analytics = AnalyticsWindowController(store: store)
 
-        let hosting = NSHostingController(rootView: UsagePanel(store: store))
+        let hosting = NSHostingController(rootView: UsagePanel(store: store) { [weak self] in
+            self?.popover.performClose(nil)
+            self?.analytics.show()
+        })
         hosting.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hosting
         popover.behavior = .transient
@@ -103,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
 struct UsagePanel: View {
     @ObservedObject var store: UsageStore
+    let openAnalytics: () -> Void
     /// Only accounts toggled by hand are recorded. Otherwise logged-in accounts are expanded and others collapsed
     @State private var expandedOverride: [String: Bool] = [:]
 
@@ -154,6 +160,8 @@ struct UsagePanel: View {
                 }
                 if store.refreshing { ProgressView().controlSize(.mini) }
                 Spacer()
+                Button(L10n.analytics, action: openAnalytics)
+                    .controlSize(.small)
                 Button(L10n.openSettings) {
                     NSWorkspace.shared.open(AppConfig.path)
                 }

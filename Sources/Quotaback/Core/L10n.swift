@@ -66,6 +66,27 @@ enum L10n {
           "config.json を読めません（前の設定のまま）: \(error)")
     }
 
+    // MARK: Analytics
+
+    static var analytics: String { t("Analytics", "分析") }
+    static var analyticsFinalUsage: String { t("Usage at reset", "リセット時の最終到達 %") }
+    static var analyticsFinalUsageNote: String {
+        t("How much of each weekly limit was used by the time it reset. Faded bars with ≥ ended while not logged in, so they're lower bounds",
+          "週次枠ごとに、リセットまでに使い切った割合。薄い棒（≥ 付き）は未ログインのまま迎えた周期で、下限値")
+    }
+    static var analyticsBurndown: String { t("Current cycle", "今の周期のバーンダウン") }
+    static var analyticsBurndownNote: String {
+        t("Logged-in accounts. The diagonal is the even pace to 100% at the reset; the dotted tail is the projection at the current pace",
+          "ログイン中のアカウント。対角線はリセットでちょうど 100% になるペース、点線は今のペースでの見込み")
+    }
+    static var analyticsElapsed: String { t("Cycle elapsed (%)", "周期の経過 (%)") }
+    static var analyticsBalance: String { t("Balance between accounts", "アカウントの偏り") }
+    static var analyticsBalanceNote: String {
+        t("Current week (all models) at reset, side by side per week",
+          "週ごとの Current week (all models) の最終到達 % を並べたもの")
+    }
+    static var analyticsNoData: String { t("No data", "データなし") }
+
     // MARK: Fetch errors
 
     static func credentialsError(_ m: String) -> String { t("Can't read credentials: \(m)", "認証情報を読めません: \(m)") }
