@@ -135,17 +135,15 @@ actor UsageEngine {
     /// Windows this account has never observed are no evidence either way
     private func foreignCycleOwner(_ windows: [WindowObservation], for key: AccountKey, now: Date) -> AccountKey? {
         func expectedReset(_ account: AccountKey, _ w: WindowObservation) -> Date? {
-            guard let own = log.latest[account]?.windows.first(where: { $0.key == w.key }) else { return nil }
-            switch Estimator.nextReset(own, now: now) {
-            case .known(let d), .projected(let d): return d
-            case .unknown: return nil
-            }
+            log.latest[account]?.windows.first { $0.key == w.key }.flatMap { Estimator.nextReset($0, now: now).date }
         }
-        let others = log.latest.keys.filter { $0.provider == key.provider && $0 != key && !$0.account.hasPrefix("?") }
+        let others = log.latest.keys
+            .filter { $0.provider == key.provider && $0 != key && !$0.account.hasPrefix("?") }
+            .sorted()
         for w in windows {
             guard case .fixed = w.cadence, let r = w.resetsAt,
                   let mine = expectedReset(key, w), !ObservationLog.sameCycle(r, mine) else { continue }
-            if let other = others.sorted().first(where: { o in
+            if let other = others.first(where: { o in
                 expectedReset(o, w).map { ObservationLog.sameCycle(r, $0) } ?? false
             }) { return other }
         }
