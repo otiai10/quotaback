@@ -17,6 +17,13 @@ struct WindowEstimate: Identifiable, Hashable {
         case projected(Date)
         /// Unknown, since the window counts from first use
         case unknown
+
+        var date: Date? {
+            switch self {
+            case .known(let d), .projected(let d): return d
+            case .unknown: return nil
+            }
+        }
     }
 
     let window: WindowObservation
