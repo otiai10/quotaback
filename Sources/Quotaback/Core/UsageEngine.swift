@@ -11,8 +11,9 @@ actor UsageEngine {
     private var fingerprintOwner: [String: AccountKey] = [:]
     /// Hash that conflicts with its assignment → the newly claimed owner and when it was first seen
     private var conflicts: [String: (owner: AccountKey, since: Date)] = [:]
-    /// Account → hash of the credentials its latest batch came from (to retract mix-ups)
-    private var latestFingerprint: [AccountKey: String] = [:]
+    /// Account → hash of the credentials its latest batch came from, and when that hash was first recorded
+    /// for it (to retract the whole run of a mix-up)
+    private var latestFingerprint: [AccountKey: (fp: String, since: Date)] = [:]
 
     /// How long a conflict must persist before it counts as a real owner change.
     /// Whichever of the owner info and the credentials `/login` writes first, both should be in place by then
@@ -84,7 +85,14 @@ actor UsageEngine {
                 return Report(target: t, owner: before, outcome: .skipped(L10n.ownerChanged(before ?? "?", after ?? "?")))
             }
             let at = now()
+            let observedAt = fetched.asOf ?? at
             if let fp = fetched.credentialFingerprint {
+                // Credentials not yet tied to anyone (e.g. refreshed since last seen): if the weekly reset time is
+                // another account's rather than this one's, they are probably still that account's. Not tied on skip
+                if fingerprintOwner[fp] == nil, let other = foreignCycleOwner(fetched.windows, for: key, now: at) {
+                    liveByTarget[t.id] = nil
+                    return Report(target: t, owner: before, outcome: .skipped(L10n.resetMatchesOther(other.account)))
+                }
                 if let prev = fingerprintOwner[fp], prev != key {
                     // The same credentials now claim a different owner. This may be mid-switch, so skip for now;
                     // if the pairing persists, accept the new owner (independent of write order)
@@ -95,18 +103,18 @@ actor UsageEngine {
                         return Report(target: t, owner: before,
                                       outcome: .skipped(L10n.tokenBelongsTo(prev.account)))
                     }
-                    // What was recorded for the previous owner was actually this account's → retract it
-                    if latestFingerprint[prev] == fp {
-                        log.retractLatest(of: prev)
+                    // What was recorded for the previous owner with these credentials was actually this account's → retract it all
+                    if let l = latestFingerprint[prev], l.fp == fp {
+                        log.retract(of: prev, from: l.since)
                         latestFingerprint[prev] = nil
                     }
                     conflicts[fp] = nil
                 }
                 fingerprintOwner[fp] = key
-                latestFingerprint[key] = fp
+                if latestFingerprint[key]?.fp != fp { latestFingerprint[key] = (fp, observedAt) }
             }
 
-            let batch = ObservationBatch(account: key, observedAt: fetched.asOf ?? at, source: t.description,
+            let batch = ObservationBatch(account: key, observedAt: observedAt, source: t.description,
                                          windows: fetched.windows)
             log.record(batch)
             liveByTarget[t.id] = key
@@ -122,6 +130,26 @@ actor UsageEngine {
             errorByTarget[t.id] = (key, error.localizedDescription)
             return Report(target: t, owner: before, outcome: .failed(error.localizedDescription))
         }
+    }
+
+    /// Another account (same provider) whose next weekly reset the fetched windows share to the minute,
+    /// while it differs from this account's own expected reset (projected over the cadence once passed).
+    /// Windows this account has never observed are no evidence either way
+    private func foreignCycleOwner(_ windows: [WindowObservation], for key: AccountKey, now: Date) -> AccountKey? {
+        func expectedReset(_ account: AccountKey, _ w: WindowObservation) -> Date? {
+            log.latest[account]?.windows.first { $0.key == w.key }.flatMap { Estimator.nextReset($0, now: now).date }
+        }
+        let others = log.latest.keys
+            .filter { $0.provider == key.provider && $0 != key && !$0.account.hasPrefix("?") }
+            .sorted()
+        for w in windows {
+            guard case .fixed = w.cadence, let r = w.resetsAt,
+                  let mine = expectedReset(key, w), !ObservationLog.sameCycle(r, mine) else { continue }
+            if let other = others.first(where: { o in
+                expectedReset(o, w).map { ObservationLog.sameCycle(r, $0) } ?? false
+            }) { return other }
+        }
+        return nil
     }
 
     /// Targets whose source mtime changed and whose owner changed (= the login was switched)
