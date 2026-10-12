@@ -22,18 +22,15 @@ enum UsageClient {
         return data
     }
 
-    /// Prefers the `limits` array (exactly the items /usage shows).
-    /// Otherwise falls back to the legacy way: every top-level object with `utilization` is a window.
+    /// Reads `limits` (exactly the items /usage shows) plus the `spend` credits; a response without `limits` is a format change and throws
     static func parse(_ data: Data) throws -> [WindowObservation] {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw UsageError.parse(L10n.notAnObject)
         }
-        var windows: [WindowObservation]
-        if let limits = root["limits"] as? [[String: Any]] {
-            windows = limits.compactMap(parseLimit)
-        } else {
-            windows = parseLegacy(root)
+        guard let limits = root["limits"] as? [[String: Any]] else {
+            throw UsageError.parse(L10n.limitsMissing)
         }
+        var windows = limits.compactMap(parseLimit)
         if let credits = parseSpend(root["spend"]) { windows.append(credits) }
         return windows
     }
@@ -94,47 +91,6 @@ enum UsageClient {
         return Money(amount: minor / pow(10, Double(exp)),
                      currency: obj["currency"] as? String ?? "USD",
                      exponent: exp)
-    }
-
-    /// Legacy format: every top-level object with a numeric `utilization` is a window
-    private static func parseLegacy(_ root: [String: Any]) -> [WindowObservation] {
-        var windows: [WindowObservation] = []
-        for (key, value) in root {
-            guard let obj = value as? [String: Any],
-                  let util = (obj["utilization"] as? NSNumber)?.doubleValue else { continue }
-            windows.append(WindowObservation(key: key,
-                                             title: legacyTitle(key),
-                                             percent: util,
-                                             resetsAt: parseDate(obj["resets_at"]),
-                                             isLimit: key == "five_hour" || key.hasPrefix("seven_day"),
-                                             cadence: ClaudeProvider.cadence(forKind: key)))
-        }
-        return windows.sorted { order($0.key) < order($1.key) }
-    }
-
-    /// Title for a legacy top-level key (five_hour / seven_day*, etc.)
-    private static func legacyTitle(_ key: String) -> String {
-        switch key {
-        case "five_hour": return "Current session"
-        case "seven_day": return "Current week (all models)"
-        case "extra_usage": return "Usage credits"
-        default:
-            if key.hasPrefix("seven_day_") {
-                let model = key.dropFirst("seven_day_".count)
-                    .replacingOccurrences(of: "_", with: " ")
-                return "Current week (\(model.capitalized))"
-            }
-            return key.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
-    private static func order(_ key: String) -> Int {
-        switch key {
-        case "five_hour": return 0
-        case "seven_day": return 1
-        case _ where key.hasPrefix("seven_day_"): return 2
-        default: return 9
-        }
     }
 
     // On macOS 27 either style reads both forms, but that leniency is undocumented,

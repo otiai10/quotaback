@@ -31,22 +31,27 @@ struct ClaudeProvider: UsageProvider {
         try? data.write(to: url)
     }
 
-    /// Decides the reset cadence from a stored window key (`limits[].kind[/scope]` or a legacy top-level key).
-    /// Also used when importing the legacy `state.json`.
+    /// Decides the reset cadence from a stored window key (`limits[].kind[/scope]`).
+    /// The old `state.json` import also passes the legacy top-level keys (`five_hour` / `seven_day*` /
+    /// `extra_usage`), which responses no longer provide, so they are mapped to their kinds here.
     static func cadence(forWindowKey key: String) -> Cadence {
-        cadence(forKind: key.split(separator: "/").first.map(String.init) ?? key)
+        switch key {
+        case "five_hour": return cadence(forKind: "session")
+        case "extra_usage": return cadence(forKind: "spend")
+        case _ where key.hasPrefix("seven_day"): return cadence(forKind: "weekly_all")
+        default: return cadence(forKind: key.split(separator: "/").first.map(String.init) ?? key)
+        }
     }
 
-    /// Decides the reset cadence from `limits[].kind` (or a legacy top-level key)
+    /// Decides the reset cadence from `limits[].kind`
     static func cadence(forKind kind: String) -> Cadence {
         switch kind {
-        case "session", "five_hour":
+        case "session":
             return .rolling(5 * 3600)
-        case "spend", "extra_usage":
+        case "spend":
             return .monthly
         default:
-            if kind.hasPrefix("weekly") || kind.hasPrefix("seven_day") { return .fixed(7 * 24 * 3600) }
-            return .unknown
+            return kind.hasPrefix("weekly") ? .fixed(7 * 24 * 3600) : .unknown
         }
     }
 }
