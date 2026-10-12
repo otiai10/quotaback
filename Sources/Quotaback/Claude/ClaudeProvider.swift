@@ -14,22 +14,31 @@ struct ClaudeProvider: UsageProvider {
                 ownerStamp: { source.ownerStamp() },
                 fetch: {
                     let token = try source.accessToken()
-                    let windows = try await UsageClient.fetch(token: token,
-                                                              rawName: source.ownerEmail() ?? source.id)
-                    return FetchedUsage(windows: windows.map(Self.observation),
+                    let rawName = source.ownerEmail() ?? source.id
+                    let data = try await UsageClient.fetch(token: token)
+                    // Save before parsing: a response that fails to parse is exactly the one to look at
+                    Self.saveRawResponse(data, name: rawName)
+                    return FetchedUsage(windows: try UsageClient.parse(data),
                                         credentialFingerprint: CredentialSource.fingerprint(token))
                 })
         }
     }
 
-    static func observation(_ w: UsageWindow) -> WindowObservation {
-        WindowObservation(key: w.key, title: w.title, percent: w.utilization, resetsAt: w.resetsAt,
-                          isLimit: w.isLimit, detail: w.detail, cadence: cadence(forWindowKey: w.key))
+    /// Saves the raw response for debugging (the API is unofficial, so we can check when the format changes)
+    private static func saveRawResponse(_ data: Data, name: String) {
+        let safe = name.replacingOccurrences(of: "/", with: "_")
+        let url = AppConfig.directory.appendingPathComponent("last-response-\(safe).json")
+        try? data.write(to: url)
     }
 
-    /// Decides the reset cadence from the window key (`limits[].kind[/scope]` or a legacy top-level key)
+    /// Decides the reset cadence from a stored window key (`limits[].kind[/scope]` or a legacy top-level key).
+    /// Also used when importing the legacy `state.json`.
     static func cadence(forWindowKey key: String) -> Cadence {
-        let kind = key.split(separator: "/").first.map(String.init) ?? key
+        cadence(forKind: key.split(separator: "/").first.map(String.init) ?? key)
+    }
+
+    /// Decides the reset cadence from `limits[].kind` (or a legacy top-level key)
+    static func cadence(forKind kind: String) -> Cadence {
         switch kind {
         case "session", "five_hour":
             return .rolling(5 * 3600)
