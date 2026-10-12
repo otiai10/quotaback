@@ -60,6 +60,38 @@ final class ObservationLogTests: XCTestCase {
         XCTAssertNil(log.latest[w], "back to unobserved if there is nothing earlier")
     }
 
+    func testRetractRangeRestoresLastBatchBeforeIt() throws {
+        let dir = try tempDirectory()
+        var log = ObservationLog.load(directory: dir, now: t0)
+        let mine = t0 + 2 * day, theirs = t0 + day
+        log.record(batch(w, at: t0, [window(percent: 20, resetsAt: mine)]))
+        // Same values later: only latest moves, history keeps t0
+        log.record(batch(w, at: t0 + hour, [window(percent: 20, resetsAt: mine)]))
+        log.record(batch(p, at: t0 + 2 * hour, [window(percent: 60, resetsAt: theirs)]))
+        for (i, v) in [61.0, 62, 63].enumerated() {
+            log.record(batch(w, at: t0 + 3 * hour + Double(i) * hour, [window(percent: v, resetsAt: theirs)]))
+        }
+        log.retract(of: w, from: t0 + 3 * hour)
+
+        XCTAssertEqual(log.history.filter { $0.account == w }.map(\.observedAt), [t0])
+        XCTAssertEqual(log.latest[w]?.observedAt, t0, "the last history batch before the range (same values as the true last latest)")
+        XCTAssertEqual(log.latest[p]?.observedAt, t0 + 2 * hour, "other accounts are untouched")
+        let reloaded = ObservationLog.load(directory: dir, now: t0 + 6 * hour)
+        XCTAssertEqual(reloaded.latest, log.latest)
+        XCTAssertEqual(reloaded.history, log.history)
+    }
+
+    func testRetractRangeKeepsLatestOutsideIt() throws {
+        var log = ObservationLog.load(directory: try tempDirectory(), now: t0)
+        log.record(batch(w, at: t0, [window(percent: 10, resetsAt: nil)]))
+        log.record(batch(w, at: t0 + hour, [window(percent: 11, resetsAt: nil)]))
+        log.record(batch(w, at: t0 + 2 * hour, [window(percent: 12, resetsAt: nil)]))
+        log.retract(of: w, from: t0 + hour, through: t0 + hour)
+
+        XCTAssertEqual(log.history.map(\.observedAt), [t0, t0 + 2 * hour])
+        XCTAssertEqual(log.latest[w]?.observedAt, t0 + 2 * hour)
+    }
+
     func testPrunesOldHistory() throws {
         let dir = try tempDirectory()
         var log = ObservationLog.load(directory: dir, now: t0)

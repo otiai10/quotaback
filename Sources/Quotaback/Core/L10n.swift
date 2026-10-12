@@ -117,6 +117,10 @@ enum L10n {
         t("these credentials were recorded as \(account)'s (possibly mid-switch)",
           "認証情報が \(account) のものとして記録済み（切り替え途中の可能性）")
     }
+    static func resetMatchesOther(_ account: String) -> String {
+        t("the weekly reset time matches \(account)'s, not this account's (the credentials may still be \(account)'s)",
+          "週次枠のリセット時刻がこのアカウントではなく \(account) と同じ（認証情報が \(account) のままの可能性）")
+    }
 
     // MARK: --once
 

@@ -94,10 +94,19 @@ struct ObservationLog {
     /// Retracts a latest batch recorded for the wrong account and falls back to the previous observation
     mutating func retractLatest(of account: AccountKey) {
         guard let bad = latest[account] else { return }
+        retract(of: account, from: bad.observedAt, through: bad.observedAt)
+    }
+
+    /// Retracts every batch of an account observed in `from...through` (e.g. a run of polls recorded for the wrong account).
+    /// If latest falls in that range, it falls back to the last history batch before `from`. History is only appended
+    /// when values change, so that batch may be older than the last correct latest (same values, earlier time)
+    mutating func retract(of account: AccountKey, from: Date, through: Date = .distantFuture) {
+        let range = from...through
         let before = history.count
-        history.removeAll { $0.account == account && $0.observedAt == bad.observedAt }
+        history.removeAll { $0.account == account && range.contains($0.observedAt) }
         if history.count != before { rewriteHistory() }
-        latest[account] = history.last { $0.account == account && $0.observedAt < bad.observedAt }
+        guard let current = latest[account], range.contains(current.observedAt) else { return }
+        latest[account] = history.last { $0.account == account && $0.observedAt < from }
         saveLatest()
     }
 
