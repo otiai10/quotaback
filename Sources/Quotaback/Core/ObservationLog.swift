@@ -37,12 +37,12 @@ struct ObservationLog {
             let all = text.split(separator: "\n").compactMap {
                 try? decoder.decode(ObservationBatch.self, from: Data($0.utf8))
             }
-            // Summarize before pruning so that a cycle is summarized from all of its observations
-            log.summarizeClosedCycles(in: all, now: now)
             log.history = all.filter { now.timeIntervalSince($0.observedAt) < retention }
+            // Summarize before pruning the file so that a cycle is summarized from all of its observations
+            log.summarizeClosedCycles(in: all, now: now)
             if log.history.count != all.count { log.rewriteHistory() }
         } else {
-            log.summarizeClosedCycles(now: now)
+            log.summarizeClosedCycles(in: [], now: now)
         }
         return log
     }
@@ -85,7 +85,10 @@ struct ObservationLog {
             appendHistory(batch)
         }
         // The replaced latest may be the only record of its cycle's last observation (same values aren't appended)
-        summarizeClosedCycles(in: history + [replaced].compactMap { $0 }, now: batch.observedAt)
+        let replacedBatch = [replaced].compactMap { $0 }
+        if hasUnsummarizedClosedCycle(latest.values + replacedBatch, now: batch.observedAt) {
+            summarizeClosedCycles(in: history + replacedBatch, now: batch.observedAt)
+        }
     }
 
     /// Retracts a latest batch recorded for the wrong account and falls back to the previous observation
@@ -135,26 +138,47 @@ struct ObservationLog {
     /// Appends a summary for every closed cycle that isn't summarized yet. A cycle is closed when a later cycle of the
     /// same window has been observed, or when `now` is past its resetsAt + 1 minute. The same code covers a new cycle
     /// being observed, time passing without observations, and backfill
+    /// Cheap when nothing has closed: only the latest windows are checked before scanning the history
     mutating func summarizeClosedCycles(now: Date) {
+        guard hasUnsummarizedClosedCycle(Array(latest.values), now: now) else { return }
         summarizeClosedCycles(in: history, now: now)
     }
 
     private mutating func summarizeClosedCycles(in batches: [ObservationBatch], now: Date) {
+        let done = summarizedResets()
         let new = Self.closedCycles(in: batches + latest.values, now: now)
-            .filter { s in !cycles.contains { $0.sameCycle(as: s) } }
+            .filter { s in !(done[s.windowID] ?? []).contains { Self.sameCycle($0, s.resetsAt) } }
         guard !new.isEmpty else { return }
         cycles += new
         appendCycles(new)
     }
 
+    /// "account key" → reset times already summarized
+    private func summarizedResets() -> [String: [Date]] {
+        Dictionary(grouping: cycles, by: \.windowID).mapValues { $0.map(\.resetsAt) }
+    }
+
+    /// Whether a window in `batches` belongs to a closed cycle (past its reset, or no longer the latest one) that
+    /// isn't summarized yet. Every cycle closes through one of these windows, so the history needn't be scanned
+    private func hasUnsummarizedClosedCycle(_ batches: [ObservationBatch], now: Date) -> Bool {
+        let done = summarizedResets()
+        return batches.contains { b in
+            b.windows.contains { w in
+                guard let r = w.resetsAt else { return false }
+                let current = latest[b.account]?.windows.first { $0.key == w.key }?.resetsAt
+                let closed = r.addingTimeInterval(60) < now || !Self.sameCycle(current, r)
+                return closed && !(done["\(b.account.id) \(w.key)"] ?? []).contains { Self.sameCycle($0, r) }
+            }
+        }
+    }
+
     /// Recreates the summaries from the raw log (e.g. after fixing a mix-up in it). Summaries of cycles that
     /// started before the oldest retained observation can't be recreated, so they are kept. Returns the count
-    @discardableResult
     mutating func rebuildCycles(now: Date = Date()) -> Int {
         let oldest = (history + latest.values).map(\.observedAt).min() ?? .distantFuture
         cycles.removeAll { $0.firstObservedAt >= oldest }
         rewriteCycles()
-        summarizeClosedCycles(now: now)
+        summarizeClosedCycles(in: history, now: now)
         return cycles.count
     }
 
@@ -164,8 +188,8 @@ struct ObservationLog {
     static func closedCycles(in batches: [ObservationBatch], now: Date) -> [CycleSummary] {
         struct Point { var at: Date; var window: WindowObservation; var resetsAt: Date }
         var groups: [String: (AccountKey, [Point])] = [:]
-        var seen = Set<String>()
-        for b in batches where seen.insert("\(b.account.id) \(b.observedAt.timeIntervalSince1970)").inserted {
+        var seen: [AccountKey: Set<Date>] = [:]
+        for b in batches where seen[b.account, default: []].insert(b.observedAt).inserted {
             for w in b.windows {
                 guard let r = w.resetsAt else { continue }
                 groups["\(b.account.id) \(w.key)", default: (b.account, [])].1
@@ -173,26 +197,26 @@ struct ObservationLog {
             }
         }
         var result: [CycleSummary] = []
-        func close(_ account: AccountKey, _ cycle: [Point], followed: Bool) {
-            guard let last = cycle.max(by: { $0.at < $1.at }), let first = cycle.min(by: { $0.at < $1.at }),
-                  followed || last.resetsAt.addingTimeInterval(60) < now else { return }
-            result.append(CycleSummary(
-                account: account, key: last.window.key, title: last.window.title, cadence: last.window.cadence,
-                resetsAt: last.resetsAt, firstObservedAt: first.at, lastObservedAt: last.at,
-                finalPercent: last.window.percent, peakPercent: cycle.map(\.window.percent).max() ?? 0,
-                observations: cycle.count))
-        }
         for (account, points) in groups.values {
             // Sorted by reset time, one cycle is a run of reset times within a minute of each other
-            var cycle: [Point] = []
+            var runs: [[Point]] = []
             for p in points.sorted(by: { ($0.resetsAt, $0.at) < ($1.resetsAt, $1.at) }) {
-                if let prev = cycle.last, !sameCycle(prev.resetsAt, p.resetsAt) {
-                    close(account, cycle, followed: true)
-                    cycle = []
+                if let prev = runs.last?.last, sameCycle(prev.resetsAt, p.resetsAt) {
+                    runs[runs.count - 1].append(p)
+                } else {
+                    runs.append([p])
                 }
-                cycle.append(p)
             }
-            close(account, cycle, followed: false)
+            for (i, run) in runs.enumerated() {
+                let byTime = run.sorted { $0.at < $1.at }
+                guard let first = byTime.first, let last = byTime.last,
+                      i < runs.count - 1 || last.resetsAt.addingTimeInterval(60) < now else { continue }
+                result.append(CycleSummary(
+                    account: account, key: last.window.key, title: last.window.title, cadence: last.window.cadence,
+                    resetsAt: last.resetsAt, firstObservedAt: first.at, lastObservedAt: last.at,
+                    finalPercent: last.window.percent, peakPercent: run.map(\.window.percent).max() ?? 0,
+                    observations: run.count))
+            }
         }
         return result.sorted { ($0.resetsAt, $0.account, $0.key) < ($1.resetsAt, $1.account, $1.key) }
     }
@@ -223,11 +247,13 @@ struct ObservationLog {
     /// Reads cycles.jsonl. Rows for the same cycle (e.g. written by both `--rebuild-cycles` and the app) keep the last
     private mutating func loadCycles() {
         guard let text = try? String(contentsOf: cyclesURL, encoding: .utf8) else { return }
-        for line in text.split(separator: "\n") {
-            guard let s = try? Self.decoder.decode(CycleSummary.self, from: Data(line.utf8)) else { continue }
-            cycles.removeAll { $0.sameCycle(as: s) }
+        let all = text.split(separator: "\n").compactMap { try? Self.decoder.decode(CycleSummary.self, from: Data($0.utf8)) }
+        var kept: [String: [Date]] = [:]
+        for s in all.reversed() where !(kept[s.windowID] ?? []).contains(where: { Self.sameCycle($0, s.resetsAt) }) {
+            kept[s.windowID, default: []].append(s.resetsAt)
             cycles.append(s)
         }
+        cycles.reverse()
     }
 
     private func appendCycles(_ new: [CycleSummary]) {

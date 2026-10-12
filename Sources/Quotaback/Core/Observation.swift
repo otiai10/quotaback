@@ -69,8 +69,6 @@ struct CycleSummary: Codable, Hashable {
     /// Number of distinct observations in the cycle
     var observations: Int
 
-    /// Whether `other` is the same window's same cycle
-    func sameCycle(as other: CycleSummary) -> Bool {
-        account == other.account && key == other.key && ObservationLog.sameCycle(resetsAt, other.resetsAt)
-    }
+    /// The account and window this cycle belongs to
+    var windowID: String { "\(account.id) \(key)" }
 }
