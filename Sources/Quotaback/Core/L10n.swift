@@ -75,6 +75,7 @@ enum L10n {
     }
     static func parseError(_ m: String) -> String { t("Couldn't parse the response: \(m)", "レスポンス解析失敗: \(m)") }
     static var notAnObject: String { t("the top level is not an object", "トップレベルがオブジェクトではありません") }
+    static var limitsMissing: String { t("`limits` is missing", "`limits` がありません") }
     static var notSet: String { t("(not set)", "(未設定)") }
     static func notFound(_ path: String) -> String { t("\(path) not found", "\(path) が見つかりません") }
     static var setKeychainOrPath: String { t("set keychainService or credentialsPath", "keychainService か credentialsPath を設定してください") }

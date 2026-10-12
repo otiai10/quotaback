@@ -55,19 +55,18 @@ final class UsageClientTests: XCTestCase {
         XCTAssertFalse(windows[0].isLimit)
     }
 
-    func testLegacyFallbackWithoutLimits() throws {
-        let json = """
-        {"seven_day": {"utilization": 43, "resets_at": "2026-10-04T00:00:00Z"},
-         "five_hour": {"utilization": 13.0, "resets_at": "2026-10-01T05:00:00.123+00:00"},
-         "seven_day_fable": {"utilization": 20.5, "resets_at": null}}
-        """
-        let windows = try UsageClient.parse(Data(json.utf8))
-
-        XCTAssertEqual(windows.map(\.title),
-                       ["Current session", "Current week (all models)", "Current week (Fable)"])
-        XCTAssertNotNil(windows[0].resetsAt)
-        XCTAssertNotNil(windows[1].resetsAt)
-        XCTAssertNil(windows[2].resetsAt)
+    /// Without `limits` the legacy top-level keys are not read; the response is rejected as a format change
+    func testParseRejectsResponseWithoutLimits() {
+        let cases = [
+            #"{"five_hour": {"utilization": 13, "resets_at": null}}"#,
+            #"{"limits": null}"#,
+            #"{"limits": {}}"#,
+        ]
+        for json in cases {
+            XCTAssertThrowsError(try UsageClient.parse(Data(json.utf8)), json) { error in
+                guard case UsageError.parse = error else { return XCTFail("\(error)") }
+            }
+        }
     }
 
     func testResetTimesRoundToNearestMinute() {

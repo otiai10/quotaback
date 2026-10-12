@@ -81,7 +81,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - `group`: `session` / `weekly` → メニューバーのピーク値対象
   - トップレベルの `five_hour` / `seven_day` も残っているが、モデル別の週次枠（`seven_day_opus` 等）は `null` で、Fable 枠は `limits` にしか出ない
 - Usage credits は `spend`（`used` / `limit` が `{amount_minor, currency, exponent}`）。`extra_usage.utilization` は `null`
-- パーサーは `limits` 優先、無ければ旧方式（`utilization` を持つトップレベルのオブジェクトを拾う）にフォールバック。`spend.limit` が 0 なら credits 行は出さない
+- パーサーは `limits` だけを読み、無い・`null`・オブジェクトの配列でないレスポンスは `UsageError.parse` で失敗させる（パネルにエラー、前回の観測は残す）。`spend.limit` が 0 なら credits 行は出さない
 - `resets_at` は取得のたびに秒未満〜1秒前後する（`01:59:59.59` / `02:00:00.19`）。パース時に最も近い分に丸めている
 - 最初の頃に「P の値」として見ていたレスポンス（`spend.limit` = 0）は実は W のもの。P は `spend.limit` = $200.00（20000 minor）で、パネルに「$0.00 / $200.00」と出ることを確認済み（2026-10-01）。当初メモの「$57.97 / $200.00」は P の以前の状態と思われる。W は Usage credits なし（limit 0 → 行を出さない）
 - P のセッション枠は未使用だと `resets_at: null`（使い始めてから決まる = rolling の裏付け）

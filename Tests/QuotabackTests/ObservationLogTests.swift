@@ -88,4 +88,12 @@ final class ObservationLogTests: XCTestCase {
         XCTAssertEqual(b.windows.first?.cadence, .fixed(7 * day))
         XCTAssertTrue(FileManager.default.fileExists(atPath: log.latestURL.path))
     }
+
+    /// state.json from before `limits` was parsed holds the legacy top-level keys; they still map to a cadence
+    func testLegacyStateKeysKeepTheirCadence() {
+        XCTAssertEqual(ClaudeProvider.cadence(forWindowKey: "five_hour"), .rolling(5 * 3600))
+        XCTAssertEqual(ClaudeProvider.cadence(forWindowKey: "seven_day"), .fixed(7 * day))
+        XCTAssertEqual(ClaudeProvider.cadence(forWindowKey: "seven_day_opus"), .fixed(7 * day))
+        XCTAssertEqual(ClaudeProvider.cadence(forWindowKey: "extra_usage"), .monthly)
+    }
 }
