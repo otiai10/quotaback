@@ -7,6 +7,7 @@ final class FakeTarget: @unchecked Sendable {
     var stamp: Date?
     var token = "token-a"
     var percent: Double = 10
+    var resetsAt = t0 + day
     var asOf: Date?
     var ownerAfterFetch: String??   // Simulates the owner changing during a fetch
     var error: Error?
@@ -19,7 +20,7 @@ final class FakeTarget: @unchecked Sendable {
                    fetch: {
                        if let e = self.error { throw e }
                        if let o = self.ownerAfterFetch { self.owner = o }
-                       return FetchedUsage(windows: [window(percent: self.percent, resetsAt: t0 + day)],
+                       return FetchedUsage(windows: [window(percent: self.percent, resetsAt: self.resetsAt)],
                                            credentialFingerprint: CredentialSource.fingerprint(self.token),
                                            asOf: self.asOf)
                    })
@@ -117,6 +118,93 @@ final class UsageEngineTests: XCTestCase {
         let views = await e.accountViews(config: accounts, now: t0 + 400)
         XCTAssertEqual(views.map(\.menuBarText), ["P 15%", "W ≥40%"])
         XCTAssertEqual(views[1].observedAt, t0, "W reverts to its observation before the mix-up")
+    }
+
+    /// Issue #13: P's token was refreshed (new hash), then only .claude.json switched to W.
+    /// The new token's weekly reset time is P's, not W's, so it is not recorded as W
+    func testRefreshedTokenOfPreviousOwnerIsNotRecordedAfterSwitch() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "w@example.com")
+        let pReset = t0 + day, wReset = t0 + day + 6 * hour
+        f.token = "token-w"; f.resetsAt = wReset; f.percent = 25
+        await e.refresh([f.target], now: { t0 })
+        f.owner = "p@example.com"; f.token = "token-p-old"; f.resetsAt = pReset; f.percent = 60
+        await e.refresh([f.target], now: { t0 + hour })
+        f.error = UsageError.tokenExpired
+        await e.refresh([f.target], now: { t0 + 2 * hour })
+
+        // P's token got refreshed, then /login left only .claude.json pointing at W
+        f.error = nil; f.token = "token-p-new"; f.percent = 61; f.stamp = t0 + 3 * hour; f.owner = "w@example.com"
+        _ = await e.changedTargets([f.target])
+        for dt in [3 * hour, 3 * hour + 300, 4 * hour] {
+            let r = await e.refresh([f.target], reason: "switch", now: { t0 + dt })
+            guard case .skipped = r[0].outcome else { return XCTFail("\(dt): \(r[0].outcome)") }
+        }
+        var views = await e.accountViews(config: accounts, now: t0 + 4 * hour)
+        XCTAssertEqual(views[1].observedAt, t0, "W keeps its own last observation")
+        XCTAssertEqual(views[1].menuBarText, "W ≥25%")
+        XCTAssertFalse(views[1].isLive)
+
+        // The skip didn't tie the token to W: back on P, it is recorded right away (no 30s conflict)
+        f.owner = "p@example.com"
+        let back = await e.refresh([f.target], now: { t0 + 4 * hour + 10 })
+        guard case .recorded = back[0].outcome else { return XCTFail("\(back[0].outcome)") }
+        views = await e.accountViews(config: accounts, now: t0 + 4 * hour + 10)
+        XCTAssertEqual(views.map(\.menuBarText), ["P 61%", "W ≥25%"])
+
+        ActivityLog.flush()
+        let text = try String(contentsOf: ActivityLog.url, encoding: .utf8)
+        let line = try XCTUnwrap(text.split(separator: "\n").first { $0.contains("refresh(switch)") }, text)
+        XCTAssertTrue(line.contains("owner=w@example.com → skipped: "), String(line))
+        XCTAssertTrue(line.contains("p@example.com"), "the reason names the account the reset time belongs to: \(line)")
+    }
+
+    /// A new token whose weekly reset matches the account's own (or its projection after a reset) is recorded
+    func testNewTokenWithOwnResetTimeIsRecorded() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "p@example.com")
+        let pReset = t0 + day, wReset = t0 + day + 6 * hour
+        f.resetsAt = pReset
+        await e.refresh([f.target], now: { t0 })
+        f.owner = "w@example.com"; f.token = "token-w"; f.resetsAt = wReset
+        await e.refresh([f.target], now: { t0 + hour })
+
+        f.token = "token-w-new"; f.percent = 30
+        var r = await e.refresh([f.target], now: { t0 + 2 * hour })
+        guard case .recorded = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+
+        // After both resets passed, W's next cycle is still told apart from P's projected one
+        f.token = "token-w-next"; f.resetsAt = wReset + 7 * day; f.percent = 1
+        r = await e.refresh([f.target], now: { t0 + 2 * day })
+        guard case .recorded = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+        f.token = "token-p-leak"; f.resetsAt = pReset + 7 * day
+        r = await e.refresh([f.target], now: { t0 + 2 * day + 600 })
+        guard case .skipped = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+    }
+
+    /// When P's token, recorded as W over several polls, later claims P and settles, every batch it left under W is retracted
+    func testSettledConflictRetractsEveryBatchRecordedWithThatToken() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "w@example.com")
+        f.percent = 40
+        await e.refresh([f.target], now: { t0 })
+        // Nothing of P observed yet, so the reset time can't tell: recorded as W, values changing
+        f.token = "token-p"
+        for (i, v) in [50.0, 55, 60].enumerated() {
+            f.percent = v
+            await e.refresh([f.target], now: { t0 + hour * Double(i + 1) })
+        }
+        f.owner = "p@example.com"
+        await e.refresh([f.target], now: { t0 + 4 * hour })
+        let settled = await e.refresh([f.target], now: { t0 + 4 * hour + UsageEngine.conflictSettle })
+        guard case .recorded = settled[0].outcome else { return XCTFail("\(settled[0].outcome)") }
+
+        let wKey = AccountKey(provider: "claude", account: "w@example.com")
+        let log = await e.log
+        XCTAssertEqual(log.history.filter { $0.account == wKey }.map(\.observedAt), [t0])
+        let views = await e.accountViews(config: accounts, now: t0 + 4 * hour + 60)
+        XCTAssertEqual(views.map(\.menuBarText), ["P 60%", "W ≥40%"])
+        XCTAssertEqual(views[1].observedAt, t0)
     }
 
     func testConflictIsNotAcceptedBeforeSettling() async throws {
