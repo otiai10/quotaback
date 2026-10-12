@@ -99,6 +99,9 @@ struct AnalyticsCharts: View {
             .frame(maxWidth: .infinity, minHeight: 60)
     }
 
+    /// Opacity of a bar whose value is a lower bound (same in both bar charts)
+    private static let lowerBoundOpacity = 0.35
+
     private static func percentText(_ v: Double, lowerBound: Bool) -> String {
         "\(lowerBound ? "≥" : "")\(Int(v.rounded()))%"
     }
@@ -121,7 +124,7 @@ struct AnalyticsCharts: View {
                         let x = PlottableValue.value("Reset", Self.day(bar.resetsAt))
                         if let p = bar.percent {
                             BarMark(x: x, y: .value("%", p))
-                                .foregroundStyle(Color.accentColor.opacity(bar.isLowerBound ? 0.35 : 0.9))
+                                .foregroundStyle(Color.accentColor.opacity(bar.isLowerBound ? Self.lowerBoundOpacity : 1))
                                 .annotation(position: .top) {
                                     Text(Self.percentText(p, lowerBound: bar.isLowerBound))
                                         .font(.caption2.monospacedDigit())
@@ -189,7 +192,7 @@ struct AnalyticsCharts: View {
                 BarMark(x: .value("Week", Self.day(bar.week)), y: .value("%", bar.percent))
                     .foregroundStyle(by: .value("Account", bar.title))
                     .position(by: .value("Account", bar.title))
-                    .opacity(bar.isLowerBound ? 0.4 : 1)
+                    .opacity(bar.isLowerBound ? Self.lowerBoundOpacity : 1)
                     .annotation(position: .top) {
                         Text(Self.percentText(bar.percent, lowerBound: bar.isLowerBound))
                             .font(.caption2.monospacedDigit())

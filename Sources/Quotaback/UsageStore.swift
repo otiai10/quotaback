@@ -9,7 +9,9 @@ final class UsageStore: ObservableObject {
     /// Data for the Analytics window. Only kept up to date while the window is open
     @Published private(set) var analytics = AnalyticsInput()
     var analyticsVisible = false {
-        didSet { if analyticsVisible { Task { await updateViews() } } }
+        didSet {
+            if analyticsVisible { Task { await updateViews() } } else { analytics = AnalyticsInput() }
+        }
     }
     @Published private(set) var refreshing = false
     /// Message when config.json can't be read (keeps running with the previous settings)
@@ -167,8 +169,9 @@ final class UsageStore: ObservableObject {
     }
 
     private func updateViews() async {
-        accounts = await engine.accountViews(config: config.accounts)
-        if analyticsVisible { analytics = await engine.analytics(config: config.accounts) }
+        let now = Date()
+        accounts = await engine.accountViews(config: config.accounts, now: now)
+        if analyticsVisible { analytics = await engine.analytics(views: accounts, now: now) }
     }
 
     var menuBarTitle: String {

@@ -155,10 +155,9 @@ actor UsageEngine {
         return String(email[..<at])
     }
 
-    /// For the Analytics window: cycle summaries and the current cycle of logged-in accounts
-    func analytics(config: [AccountConfig], now: Date = Date()) -> AnalyticsInput {
-        let views = accountViews(config: config, now: now)
-        return AnalyticsInput(
+    /// For the Analytics window: cycle summaries and the current cycle of logged-in accounts (`views` from `accountViews`)
+    func analytics(views: [AccountView], now: Date = Date()) -> AnalyticsInput {
+        AnalyticsInput(
             cycles: log.cycles,
             titles: Dictionary(views.map { ($0.key, $0.title) }, uniquingKeysWith: { a, _ in a }),
             live: views.filter(\.isLive).flatMap { v in

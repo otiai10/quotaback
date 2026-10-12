@@ -87,12 +87,13 @@ enum AnalyticsModel {
         /// Line identity (account + window)
         let series: String
         let label: String
+        let at: Date
         /// Elapsed share of the cycle (0–100)
         let elapsed: Double
         let percent: Double
         let kind: Kind
 
-        var id: String { "\(series) \(kind) \(elapsed)" }
+        var id: String { "\(series) \(kind) \(at.timeIntervalSince1970)" }
     }
 
     /// Lines for the usage-limit windows of logged-in accounts, with time as the elapsed share of each cycle so that
@@ -113,11 +114,11 @@ enum AnalyticsModel {
             let series = "\(lw.account.id) \(w.key)"
             let label = "\(titles(lw.account)) · \(w.title)"
             var points = lw.points.map {
-                BurnPoint(series: series, label: label, elapsed: elapsed($0.0), percent: $0.1, kind: .observed)
+                BurnPoint(series: series, label: label, at: $0.0, elapsed: elapsed($0.0), percent: $0.1, kind: .observed)
             }
             if let eta = lw.estimate.limitETA, let last = lw.points.last {
-                points += [BurnPoint(series: series, label: label, elapsed: elapsed(last.0), percent: last.1, kind: .projected),
-                           BurnPoint(series: series, label: label, elapsed: elapsed(eta), percent: 100, kind: .projected)]
+                points += [BurnPoint(series: series, label: label, at: last.0, elapsed: elapsed(last.0), percent: last.1, kind: .projected),
+                           BurnPoint(series: series, label: label, at: eta, elapsed: elapsed(eta), percent: 100, kind: .projected)]
             }
             return points
         }
