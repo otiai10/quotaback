@@ -153,6 +153,22 @@ final class CycleSummaryTests: XCTestCase {
         XCTAssertEqual(ObservationLog.load(directory: dir, now: t0 + 400 * day).cycles.map(\.finalPercent), [42])
     }
 
+    /// A cycle closes by time on a refresh that records nothing (the account isn't logged in any more)
+    func testRefreshClosesCyclesByTime() async throws {
+        ActivityLog.url = try tempDirectory().appendingPathComponent("activity.log")
+        let engine = UsageEngine(log: ObservationLog.load(directory: try tempDirectory(), now: t0))
+        let f = FakeTarget(owner: "w@example.com")
+        await engine.refresh([f.target], now: { t0 })
+        f.error = UsageError.noObservation("none")
+        await engine.refresh([f.target], now: { t0 + day + 30 })
+        let before = await engine.log.cycles.count
+        XCTAssertEqual(before, 0, "within a minute of the reset")
+
+        await engine.refresh([f.target], now: { t0 + day + 120 })
+        let after = await engine.log.cycles
+        XCTAssertEqual(after.map(\.account), [w])
+    }
+
     func testSeparatesAccountsAndWindows() throws {
         var log = ObservationLog.load(directory: try tempDirectory(), now: t0)
         let r = t0 + day

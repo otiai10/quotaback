@@ -159,7 +159,8 @@ struct ObservationLog {
     }
 
     /// Whether a window in `batches` belongs to a closed cycle (past its reset, or no longer the latest one) that
-    /// isn't summarized yet. Every cycle closes through one of these windows, so the history needn't be scanned
+    /// isn't summarized yet. A cycle normally closes through one of these windows, so the history needn't be scanned.
+    /// A window that disappears from an account before its reset is only summarized at the next load
     private func hasUnsummarizedClosedCycle(_ batches: [ObservationBatch], now: Date) -> Bool {
         let done = summarizedResets()
         return batches.contains { b in
