@@ -6,6 +6,11 @@ import SwiftUI
 final class UsageStore: ObservableObject {
     @Published private(set) var config: AppConfig
     @Published private(set) var accounts: [AccountView] = []
+    /// Data for the Analytics window. Only kept up to date while the window is open
+    @Published private(set) var analytics = AnalyticsInput()
+    var analyticsVisible = false {
+        didSet { if analyticsVisible { Task { await updateViews() } } }
+    }
     @Published private(set) var refreshing = false
     /// Message when config.json can't be read (keeps running with the previous settings)
     @Published private(set) var configError: String?
@@ -163,6 +168,7 @@ final class UsageStore: ObservableObject {
 
     private func updateViews() async {
         accounts = await engine.accountViews(config: config.accounts)
+        if analyticsVisible { analytics = await engine.analytics(config: config.accounts) }
     }
 
     var menuBarTitle: String {
