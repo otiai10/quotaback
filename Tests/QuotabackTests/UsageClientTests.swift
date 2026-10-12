@@ -80,6 +80,15 @@ final class UsageClientTests: XCTestCase {
         XCTAssertNil(UsageClient.parseDate(nil))
     }
 
+    func testParseDateReadsZuluSuffix() {
+        XCTAssertNotNil(UsageClient.parseDate("2026-10-04T00:00:00Z"))
+    }
+
+    func testParseDateRejectsNonDates() {
+        XCTAssertNil(UsageClient.parseDate(42))
+        XCTAssertNil(UsageClient.parseDate("not a date"))
+    }
+
     func testParseRejectsNonObject() {
         XCTAssertThrowsError(try UsageClient.parse(Data("[]".utf8)))
     }

@@ -137,15 +137,16 @@ enum UsageClient {
         }
     }
 
+    // On macOS 27 either style reads both forms, but that leniency is undocumented,
+    // so fall back to the plain style when the fractional one fails
+    private static let fractionalStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let plainStyle = Date.ISO8601FormatStyle()
+
     /// resets_at jitters between fetches ("01:59:59.59" / "02:00:00.19"), so round to the nearest minute
     static func parseDate(_ v: Any?) -> Date? {
-        guard let s = v as? String else { return nil }
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let d = f.date(from: s) ?? {
-            f.formatOptions = [.withInternetDateTime]
-            return f.date(from: s)
-        }() else { return nil }
+        guard let s = v as? String,
+              let d = (try? Date(s, strategy: fractionalStyle)) ?? (try? Date(s, strategy: plainStyle))
+        else { return nil }
         return Date(timeIntervalSince1970: (d.timeIntervalSince1970 / 60).rounded() * 60)
     }
 }
