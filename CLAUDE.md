@@ -36,9 +36,9 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - `UsageEngine.swift` actor。観測→記録、ログイン切り替え検知、取り違え防止、表示用 `AccountView` の生成。UI と `--once` の両方がこれを使う
   - `Provider.swift` `UsageProvider` プロトコルと `PollTarget`（owner / ownerStamp / fetch のクロージャ）
 - `Claude/` Claude 固有
-  - `ClaudeProvider.swift` `PollTarget` の生成、枠キー → `Cadence`（session=rolling 5h、weekly*=fixed 7d、spend=monthly）
+  - `ClaudeProvider.swift` `PollTarget` の生成（取得 → 生レスポンスを `last-response-<email>.json` に保存 → 解析）、`kind` → `Cadence`（`cadence(forKind:)`。session=rolling 5h、weekly*=fixed 7d、spend=monthly）。`cadence(forWindowKey:)` は保存済みのキーから引く版で、旧 `state.json` の取り込みでも使う
   - `Credentials.swift` `CredentialSource`、置き場所の自動検出、持ち主の判定（`.claude.json` の `oauthAccount.emailAddress`）、トークン読み取りとハッシュ
-  - `UsageClient.swift` usage API 呼び出しとレスポンス解析（`UsageWindow`）
+  - `UsageClient.swift` usage API 呼び出し（`fetch` は `Data` を返すだけでファイルは書かない）とレスポンス解析（`parse` が `[WindowObservation]` を直接返す）
 - `Codex/` Codex 固有（API は呼ばない）
   - `CodexProvider.swift` `CodexHome`（`$CODEX_HOME` / `~/.codex`）。持ち主は `auth.json` の `id_token` の `email`。`last_refresh` より前の記録は使わない（`UsageError.noObservation`）
   - `CodexRolloutReader.swift` `sessions/YYYY/MM/DD/rollout-*.jsonl` を新しい順に末尾 1MB だけ読み、最新の `token_count` の `rate_limits` を取る。枠は `window_minutes` で区別（300=5h limit/rolling、10080=Weekly limit/fixed 7d）。`resets_at`（epoch）と旧形式の `resets_in_seconds` の両方に対応

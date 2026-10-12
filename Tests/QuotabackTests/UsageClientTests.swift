@@ -31,7 +31,8 @@ final class UsageClientTests: XCTestCase {
 
         XCTAssertEqual(windows.map(\.title),
                        ["Current session", "Current week (all models)", "Current week (Fable)"])
-        XCTAssertEqual(windows.map(\.utilization), [13, 58, 19])
+        XCTAssertEqual(windows.map(\.percent), [13, 58, 19])
+        XCTAssertEqual(windows.map(\.cadence), [.rolling(18000), .fixed(604800), .fixed(604800)])
         XCTAssertEqual(windows.map(\.key), ["session", "weekly_all", "weekly_scoped/Fable"])
         XCTAssertTrue(windows.allSatisfy(\.isLimit))
         XCTAssertTrue(windows.allSatisfy { $0.resetsAt != nil })
@@ -49,7 +50,8 @@ final class UsageClientTests: XCTestCase {
         XCTAssertEqual(windows.count, 1)
         XCTAssertEqual(windows[0].title, "Usage credits")
         XCTAssertEqual(windows[0].detail, "$57.97 / $200.00")
-        XCTAssertEqual(windows[0].utilization, 29)
+        XCTAssertEqual(windows[0].percent, 29)
+        XCTAssertEqual(windows[0].cadence, .monthly)
         XCTAssertFalse(windows[0].isLimit)
     }
 
