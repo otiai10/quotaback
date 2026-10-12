@@ -62,6 +62,8 @@ actor UsageEngine {
             ActivityLog.write("refresh\(reason.isEmpty ? "" : "(\(reason))") \(t.description) owner=\(r.owner ?? "?") → \(r.outcome.summary)")
             reports.append(r)
         }
+        // Cycles of accounts that aren't logged in close by time alone
+        log.summarizeClosedCycles(now: now())
         return reports
     }
 

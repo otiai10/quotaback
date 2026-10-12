@@ -109,4 +109,10 @@ enum L10n {
     static func lastObservedShort(_ time: String) -> String { t("last observed: \(time)", "最終観測: \(time)") }
     static var projectedSuffix: String { t(" (est.)", " (推定)") }
     static func limitETA(_ time: String) -> String { t(" · limit around \(time)", " · 上限到達見込み \(time)") }
+
+    // MARK: --rebuild-cycles
+
+    static func cyclesRebuilt(_ n: Int, _ path: String) -> String {
+        t("Rebuilt \(path): \(n) \(n == 1 ? "cycle" : "cycles")", "\(path) を作り直しました: \(n) 周期")
+    }
 }

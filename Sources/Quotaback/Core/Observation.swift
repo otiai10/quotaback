@@ -52,3 +52,25 @@ struct ObservationBatch: Codable, Hashable {
     var source: String
     var windows: [WindowObservation]
 }
+
+/// One closed reset cycle of one window, summarized from its observations (`cycles.jsonl`, never pruned).
+/// Whether the final value is a lower bound is left to the reader (`resetsAt - lastObservedAt`).
+struct CycleSummary: Codable, Hashable {
+    var account: AccountKey
+    var key: String
+    var title: String
+    var cadence: Cadence
+    var resetsAt: Date
+    var firstObservedAt: Date
+    var lastObservedAt: Date
+    /// The value at the last observation of the cycle
+    var finalPercent: Double
+    var peakPercent: Double
+    /// Number of distinct observations in the cycle
+    var observations: Int
+
+    /// Whether `other` is the same window's same cycle
+    func sameCycle(as other: CycleSummary) -> Bool {
+        account == other.account && key == other.key && ObservationLog.sameCycle(resetsAt, other.resetsAt)
+    }
+}

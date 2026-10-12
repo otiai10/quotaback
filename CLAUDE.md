@@ -30,8 +30,8 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - 当初は SwiftUI `MenuBarExtra(.window)` だったが、畳んで中身が縮んでもウィンドウが縮まず、上下に空白が残った（外から setFrame しても直らず）ので置き換えた
 - `NSApp.setActivationPolicy(.accessory)` で Dock 非表示
 - `Core/` プロバイダに依存しない部分
-  - `Observation.swift` `AccountKey`（`provider:account`）、`Cadence`（fixed / monthly / rolling / unknown）、`WindowObservation`、`ObservationBatch`
-  - `ObservationLog.swift` `latest.json`（最新バッチ、毎回上書き）と `observations.jsonl`（値が変わったときだけ追記、35日で間引き）。旧 `state.json` は初回に取り込む
+  - `Observation.swift` `AccountKey`（`provider:account`）、`Cadence`（fixed / monthly / rolling / unknown）、`WindowObservation`、`ObservationBatch`、`CycleSummary`（閉じた周期の要約）
+  - `ObservationLog.swift` `latest.json`（最新バッチ、毎回上書き）と `observations.jsonl`（値が変わったときだけ追記、35日で間引き）と `cycles.jsonl`（閉じた周期ごとに1行、間引かない。`summarizeClosedCycles` / `rebuildCycles`）。旧 `state.json` は初回に取り込む
   - `Estimator.swift` 観測 + 今の時刻 → `WindowEstimate`（exact / atLeast / reset、known / projected / unknown、100% 到達見込み）。純粋関数
   - `UsageEngine.swift` actor。観測→記録、ログイン切り替え検知、取り違え防止、表示用 `AccountView` の生成。UI と `--once` の両方がこれを使う
   - `Provider.swift` `UsageProvider` プロトコルと `PollTarget`（owner / ownerStamp / fetch のクロージャ）
@@ -50,7 +50,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - `Core/ActivityLog.swift` `activity.log` に切り替え検知と取得結果を追記（トークンは書かない）。テストでは `ActivityLog.url` を一時ディレクトリに向けること
 - `UsageStore.swift` UI 用。5分ごとの全取得（置き場所もこのとき探し直す）、2秒ごとの切り替え検知（mtime が変わったときだけ `.claude.json` を読む。検知したら1秒待って取得、見送られたら5秒後と35秒後に取り直し）、パネルを開いたときの確認（直近の取得から15秒以上なら取得）、15秒ごとの推定値の再計算、`config.json` の変更の自動反映（ディレクトリを DispatchSource で監視 + 15秒ごとの mtime 確認。壊れた JSON は無視して前の設定を維持）
 - `App.swift` `AppDelegate`（ステータス項目とポップオーバー、右クリックメニュー「更新 / ログイン時に起動 / 終了」）と UI。パネルのフッターは取得時刻と「設定を開く」だけ。`Main.swift` から `NSApplication.run()` で起動
-- `Main.swift` エントリポイント。`--once` でアプリと同じ経路で1回観測・記録して結果と推定を表示
+- `Main.swift` エントリポイント。`--once` でアプリと同じ経路で1回観測・記録して結果と推定を表示。`--rebuild-cycles` で `cycles.jsonl` を生ログから作り直す
 - `Tests/QuotabackTests` パーサー、認証情報、推定、保存、エンジン（取り違え防止・切り替え検知）のテスト
 - `scripts/bundle.sh` release ビルド → `dist/Quotaback.app`（LSUIElement、ad-hoc 署名）
 - `Makefile` `make install` で bundle.sh → `~/Applications/Quotaback.app` に置き換え（`PREFIX` で変更可）。起動中なら終了させて、置き換え後に起動し直す。`make uninstall` もある
@@ -63,6 +63,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - 取り違え防止：`/login` では `.claude.json`（持ち主）と Keychain（トークン）が別々に更新されるので、(1) 取得後に持ち主を読み直して変わっていたら捨てる、(2) トークンのハッシュ → アカウントの対応をメモリに持ち、同じトークンが別の持ち主を名乗ったら一旦見送る。30秒以上たっても同じ組み合わせならそちらを正とし、前の持ち主に記録した最新バッチがそのトークン由来なら取り消す（`/login` の書き込み順に依存しないため）。見送ったら UsageStore が35秒後に最大2回取り直す。ハッシュもトークンも保存しない
 - 切り替え検知：`.claude.json` は Claude Code がアトミックに書き換えるので DispatchSource ではなく2秒ごとに mtime を見て、変わったときだけ持ち主を読み直す（約480KB）
 - 2026-10-01 の実例：`/login` の途中（16:38:56）に一度検知して W を取得、ログイン完了後は当時の15秒間隔＋3秒待ちが間に合わず、ユーザーが「更新」を押した（16:40:19）。これを受けて2秒間隔・1秒待ち・パネルを開いたときの確認・`activity.log` を追加
+- 周期の要約（`cycles.jsonl`）：Analytics 用に、周期1つにつき1行（`account` / `key` / `title` / `cadence` / `resetsAt` / `firstObservedAt` / `lastObservedAt` / `finalPercent` / `peakPercent` / `observations`）を残し、間引かない。同じアカウント・枠の観測を resetsAt 順に並べ、隣どうしが `sameCycle`（1分以内）なら同じ周期とする。後ろに別の周期の観測があるか、`now` が resetsAt + 60秒を過ぎたら閉じたとみなし、まだ要約に無ければ追記する。これを `load`（35日の間引きの前の全行で）・`record` の後（上書き前の latest も含めて）・`UsageEngine.refresh` の後に呼ぶので、新しい周期の観測・時間経過・初回の backfill が同じコードになる。resetsAt が無い枠（未使用の session）は要約しない。一度も観測できなかった周期は行が無い（0% ではない）。下限かどうかは保存せず、読む側が `resetsAt - lastObservedAt` で判断する。要約済みの周期に後から観測が来ても書き換えない（取り違えなどで生ログを直したら `--rebuild-cycles`。生ログで作り直せない古い周期の行は残す）。`observations` は保存された観測時刻の数で、取得回数ではない
 - 複数プロバイダ：保存キーは `provider:account`、枠の周期は観測ごとに `Cadence` として持つ。プロバイダを足すときは `UsageProvider` を実装して `Providers.all` に入れる
 
 ## Codex の確認状況（2026-10-02, codex-cli 0.147.0）

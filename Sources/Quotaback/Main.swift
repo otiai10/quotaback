@@ -1,11 +1,18 @@
 import AppKit
 
 /// Entry point. With `--once`, observes and records once without UI and prints the results to stdout.
+/// With `--rebuild-cycles`, recreates cycles.jsonl from the raw observation log.
 @main
 enum Main {
     static func main() {
         if CommandLine.arguments.contains("--once") {
             exit(runOnce())
+        }
+        if CommandLine.arguments.contains("--rebuild-cycles") {
+            L10n.apply(AppConfig.load().language)
+            var log = ObservationLog.load()
+            print(L10n.cyclesRebuilt(log.rebuildCycles(), log.cyclesURL.path))
+            exit(0)
         }
         let app = NSApplication.shared
         let delegate = AppDelegate()
