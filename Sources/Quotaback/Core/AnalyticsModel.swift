@@ -80,6 +80,36 @@ enum AnalyticsModel {
         .sorted { ($0.account, $0.key) < ($1.account, $1.key) }
     }
 
+    struct HeatCell: Identifiable, Hashable {
+        /// Row: one account and window, in the order of `finalUsage`
+        let row: String
+        let account: String
+        let window: String
+        /// Start of the calendar week the reset falls in, so that windows resetting on different days share a column
+        let week: Date
+        /// nil when the cycle was never observed. Not the same as 0%
+        let percent: Double?
+        let isLowerBound: Bool
+
+        var id: String { "\(row) \(week.timeIntervalSince1970)" }
+    }
+
+    /// `finalUsage` laid out as a grid: a row per account and window, a column per calendar week
+    static func heatmap(_ cycles: [CycleSummary], now: Date, titles: (AccountKey) -> String,
+                        calendar: Calendar = .current) -> [HeatCell] {
+        finalUsage(cycles, now: now).flatMap { s -> [HeatCell] in
+            var cells: [Date: HeatCell] = [:]
+            for bar in s.bars {
+                guard let week = calendar.dateInterval(of: .weekOfYear, for: bar.resetsAt)?.start else { continue }
+                // The later cycle wins if two fall in the same week, unless it has no data
+                if bar.percent == nil, cells[week] != nil { continue }
+                cells[week] = HeatCell(row: s.id, account: titles(s.account), window: s.title, week: week,
+                                       percent: bar.percent, isLowerBound: bar.isLowerBound)
+            }
+            return cells.values.sorted { $0.week < $1.week }
+        }
+    }
+
     // MARK: 2. Burndown of the current cycle
 
     struct BurnPoint: Identifiable, Hashable {

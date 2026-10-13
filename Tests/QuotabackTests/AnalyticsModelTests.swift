@@ -95,6 +95,30 @@ final class AnalyticsModelTests: XCTestCase {
         XCTAssertEqual(bars.map(\.isLowerBound), [false, true, false])
     }
 
+    /// Heatmap: windows resetting on different days share a calendar-week column; missing cycles stay "no data"
+    func testHeatmapAlignsRowsByCalendarWeek() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        calendar.firstWeekday = 2
+        let monday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 5, hour: 5)))
+        let tuesday = monday + day + 6 * hour
+        let cells = AnalyticsModel.heatmap([
+            cycle(p, resetsAt: monday, final: 100),
+            cycle(p, resetsAt: monday + 2 * week, final: 70),
+            cycle(w, resetsAt: tuesday, final: 20, lastObservedBefore: day),
+        ], now: monday + 2 * week + hour, titles: titles, calendar: calendar)
+
+        let pRow = cells.filter { $0.account == "P" }
+        XCTAssertEqual(pRow.map(\.percent), [100, nil, 70])
+        XCTAssertEqual(pRow.map(\.week), [monday, monday + week, monday + 2 * week].map {
+            calendar.dateInterval(of: .weekOfYear, for: $0)!.start
+        })
+        let wRow = cells.filter { $0.account == "W" }
+        XCTAssertEqual(wRow.first?.week, pRow.first?.week, "different reset days fall in the same column")
+        XCTAssertEqual(wRow.first?.isLowerBound, true)
+        XCTAssertEqual(Set(cells.map(\.window)), ["weekly_all"])
+    }
+
     func testBurndownUsesElapsedShareAndProjection() {
         let reset = t0 + 4 * day
         let start = reset - week

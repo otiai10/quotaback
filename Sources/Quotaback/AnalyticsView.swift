@@ -113,38 +113,46 @@ struct AnalyticsCharts: View {
     // MARK: 1
 
     @ViewBuilder private var finalUsage: some View {
-        let series = AnalyticsModel.finalUsage(input.cycles, now: input.now)
-        if series.isEmpty {
+        // The most recent weeks only, so that the cells keep a readable width
+        let all = AnalyticsModel.heatmap(input.cycles, now: input.now, titles: input.title)
+        let shown = Set(Set(all.map(\.week)).sorted().suffix(Self.heatmapWeeks))
+        let cells = all.filter { shown.contains($0.week) }
+        if cells.isEmpty {
             empty()
         } else {
-            ForEach(series) { s in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(input.title(s.account)) · \(s.title)").font(.subheadline)
-                    Chart(s.bars) { bar in
-                        let x = PlottableValue.value("Reset", Self.day(bar.resetsAt))
-                        if let p = bar.percent {
-                            BarMark(x: x, y: .value("%", p))
-                                .foregroundStyle(Color.accentColor.opacity(bar.isLowerBound ? Self.lowerBoundOpacity : 1))
-                                .annotation(position: .top) {
-                                    Text(Self.percentText(p, lowerBound: bar.isLowerBound))
-                                        .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                }
-                        } else {
-                            // A missing cycle is shown as such, not as 0%
-                            BarMark(x: x, y: .value("%", 100))
-                                .foregroundStyle(Color.secondary.opacity(0.08))
-                                .annotation(position: .overlay) {
-                                    Text(L10n.analyticsNoData).font(.caption2).foregroundStyle(.secondary)
-                                }
+            let rows = cells.map(\.row).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+            let weeks = Set(cells.map(\.week)).sorted()
+            let byID = Dictionary(cells.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+            Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+                GridRow {
+                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    ForEach(weeks, id: \.self) { w in
+                        Text(Self.shortDay(w)).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                ForEach(rows, id: \.self) { row in
+                    GridRow {
+                        let first = cells.first { $0.row == row }
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(first?.account ?? row).font(.caption)
+                            Text(first?.window ?? "").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .lineLimit(1)
+                        .fixedSize()
+                        .gridColumnAlignment(.leading)
+                        ForEach(weeks, id: \.self) { w in
+                            HeatCellView(cell: byID["\(row) \(w.timeIntervalSince1970)"])
                         }
                     }
-                    .chartYScale(domain: 0...110)
-                    .chartYAxis { AxisMarks(values: [0, 50, 100]) }
-                    .frame(height: 140)
                 }
             }
         }
+    }
+
+    private static let heatmapWeeks = 8
+
+    private static func shortDay(_ d: Date) -> String {
+        d.formatted(Date.FormatStyle(date: .omitted, time: .omitted).month(.defaultDigits).day().locale(L10n.locale))
     }
 
     // MARK: 2
@@ -176,6 +184,8 @@ struct AnalyticsCharts: View {
             .chartXScale(domain: 0...100)
             .chartYScale(domain: 0...100)
             .chartXAxisLabel(L10n.analyticsElapsed)
+            .chartYAxis { AxisMarks(position: .leading) }
+            .chartYAxisLabel(L10n.analyticsUsage, position: .leading)
             .chartLegend(position: .bottom, alignment: .leading)
             .frame(height: 240)
         }
@@ -200,9 +210,52 @@ struct AnalyticsCharts: View {
                     }
             }
             .chartYScale(domain: 0...110)
-            .chartYAxis { AxisMarks(values: [0, 50, 100]) }
+            .chartYAxis { AxisMarks(position: .leading, values: [0, 50, 100]) }
             .chartLegend(position: .bottom, alignment: .leading)
             .frame(height: 200)
         }
+    }
+}
+
+/// One week of one window: darker for more of the limit used, outlined at 100%, striped when it's a lower bound,
+/// faint and empty when there's no data (a week before the window existed has no cell at all)
+private struct HeatCellView: View {
+    let cell: AnalyticsModel.HeatCell?
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 4)
+        ZStack {
+            if let cell {
+                if let p = cell.percent {
+                    let level = min(1, max(0, p / 100))
+                    shape.fill(Color.accentColor.opacity(0.12 + 0.88 * level))
+                    if cell.isLowerBound { Stripes().stroke(Color.primary.opacity(0.25), lineWidth: 1).clipShape(shape) }
+                    if p >= 100 { shape.strokeBorder(Color.primary, lineWidth: 1.5) }
+                    Text("\(cell.isLowerBound ? "≥" : "")\(Int(p.rounded()))")
+                        .font(.caption.monospacedDigit().weight(p >= 100 ? .bold : .regular))
+                        .foregroundStyle(level >= 0.55 ? Color.white : Color.primary)
+                } else {
+                    shape.fill(Color.secondary.opacity(0.08))
+                    Text("–").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 28)
+    }
+}
+
+/// Diagonal hatching for lower-bound cells
+private struct Stripes: Shape {
+    var spacing: CGFloat = 6
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        var x = rect.minX - rect.height
+        while x < rect.maxX {
+            path.move(to: CGPoint(x: x, y: rect.maxY))
+            path.addLine(to: CGPoint(x: x + rect.height, y: rect.minY))
+            x += spacing
+        }
+        return path
     }
 }
