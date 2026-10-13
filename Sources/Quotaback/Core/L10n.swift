@@ -81,11 +81,6 @@ enum L10n {
     }
     static var analyticsElapsed: String { t("Time into cycle (%)", "周期の経過時間 (%)") }
     static var analyticsUsage: String { t("Usage (%)", "消費率 (%)") }
-    static var analyticsBalance: String { t("Balance between accounts", "アカウントの偏り") }
-    static var analyticsBalanceNote: String {
-        t("Current week (all models) at reset, side by side per week",
-          "週ごとの Current week (all models) の最終到達 % を並べたもの")
-    }
     static var analyticsNoData: String { t("No data", "データなし") }
 
     // MARK: Fetch errors

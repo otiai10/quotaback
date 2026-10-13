@@ -72,29 +72,6 @@ final class AnalyticsModelTests: XCTestCase {
         ])
     }
 
-    /// AC-4: a week where only one account has a summary has only that account's bar
-    func testBalanceDrawsOnlyTheAccountWithData() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
-        calendar.firstWeekday = 2
-        // Resets on different days of the same week (P on Monday 05:00, W on Tuesday 11:00 JST)
-        let monday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 5, hour: 5)))
-        let tuesday = monday + day + 6 * hour
-        let bars = AnalyticsModel.balance([
-            cycle(p, resetsAt: monday, final: 90),
-            cycle(w, resetsAt: tuesday, final: 20, lastObservedBefore: day),
-            cycle(p, resetsAt: monday + week, final: 70),          // W has no summary this week
-            cycle(w, "weekly_scoped/Fable", resetsAt: tuesday + week, final: 50),
-            cycle(codex, "window_10080m", resetsAt: monday + week, final: 30),
-        ], titles: titles, calendar: calendar)
-
-        XCTAssertEqual(bars.map(\.title), ["P", "W", "P"])
-        XCTAssertEqual(bars.map(\.percent), [90, 20, 70])
-        XCTAssertEqual(bars[0].week, bars[1].week, "different reset days fall in the same week")
-        XCTAssertEqual(bars[2].week, bars[0].week + week)
-        XCTAssertEqual(bars.map(\.isLowerBound), [false, true, false])
-    }
-
     /// Heatmap: windows resetting on different days share a calendar-week column; missing cycles stay "no data"
     func testHeatmapAlignsRowsByCalendarWeek() throws {
         var calendar = Calendar(identifier: .gregorian)

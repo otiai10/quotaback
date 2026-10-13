@@ -78,7 +78,6 @@ struct AnalyticsCharts: View {
         VStack(alignment: .leading, spacing: 24) {
             card(L10n.analyticsFinalUsage, L10n.analyticsFinalUsageNote) { finalUsage }
             card(L10n.analyticsBurndown, L10n.analyticsBurndownNote) { burndown }
-            card(L10n.analyticsBalance, L10n.analyticsBalanceNote) { balance }
         }
         .padding(20)
     }
@@ -97,17 +96,6 @@ struct AnalyticsCharts: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 60)
-    }
-
-    /// Opacity of a bar whose value is a lower bound (same in both bar charts)
-    private static let lowerBoundOpacity = 0.35
-
-    private static func percentText(_ v: Double, lowerBound: Bool) -> String {
-        "\(lowerBound ? "≥" : "")\(Int(v.rounded()))%"
-    }
-
-    private static func day(_ d: Date) -> String {
-        d.formatted(Date.FormatStyle(date: .numeric, time: .omitted).locale(L10n.locale))
     }
 
     // MARK: 1
@@ -191,30 +179,6 @@ struct AnalyticsCharts: View {
         }
     }
 
-    // MARK: 3
-
-    @ViewBuilder private var balance: some View {
-        let bars = AnalyticsModel.balance(input.cycles, titles: input.title)
-        if bars.isEmpty {
-            empty()
-        } else {
-            Chart(bars) { bar in
-                BarMark(x: .value("Week", Self.day(bar.week)), y: .value("%", bar.percent))
-                    .foregroundStyle(by: .value("Account", bar.title))
-                    .position(by: .value("Account", bar.title))
-                    .opacity(bar.isLowerBound ? Self.lowerBoundOpacity : 1)
-                    .annotation(position: .top) {
-                        Text(Self.percentText(bar.percent, lowerBound: bar.isLowerBound))
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-            }
-            .chartYScale(domain: 0...110)
-            .chartYAxis { AxisMarks(position: .leading, values: [0, 50, 100]) }
-            .chartLegend(position: .bottom, alignment: .leading)
-            .frame(height: 200)
-        }
-    }
 }
 
 /// One week of one window: darker for more of the limit used, outlined at 100%, striped when it's a lower bound,

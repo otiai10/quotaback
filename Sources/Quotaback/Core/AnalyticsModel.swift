@@ -154,31 +154,4 @@ enum AnalyticsModel {
         }
     }
 
-    // MARK: 3. Balance between accounts
-
-    struct BalanceBar: Identifiable, Hashable {
-        /// Start of the calendar week the reset falls in
-        let week: Date
-        let account: AccountKey
-        let title: String
-        let percent: Double
-        let isLowerBound: Bool
-
-        var id: String { "\(week.timeIntervalSince1970) \(account.id)" }
-    }
-
-    /// Final usage of each Claude account's all-models weekly window, lined up by the calendar week of the reset.
-    /// A week without an account's summary has no bar for it
-    static func balance(_ cycles: [CycleSummary], titles: (AccountKey) -> String,
-                        calendar: Calendar = .current) -> [BalanceBar] {
-        var bars: [String: BalanceBar] = [:]
-        for s in cycles.sorted(by: { $0.resetsAt < $1.resetsAt })
-        where s.account.provider == ClaudeProvider.id && s.key == "weekly_all" {
-            guard let week = calendar.dateInterval(of: .weekOfYear, for: s.resetsAt)?.start else { continue }
-            let bar = BalanceBar(week: week, account: s.account, title: titles(s.account),
-                                 percent: s.finalPercent, isLowerBound: isLowerBound(s))
-            bars[bar.id] = bar   // The later cycle wins if two fall in the same week
-        }
-        return bars.values.sorted { ($0.week, $0.account) < ($1.week, $1.account) }
-    }
 }
