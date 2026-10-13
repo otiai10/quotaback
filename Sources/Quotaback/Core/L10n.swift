@@ -71,15 +71,16 @@ enum L10n {
     static var analytics: String { t("Analytics", "分析") }
     static var analyticsFinalUsage: String { t("Usage at reset", "リセット時の最終到達 %") }
     static var analyticsFinalUsageNote: String {
-        t("How much of each weekly limit was used by the time it reset. Faded bars with ≥ ended while not logged in, so they're lower bounds",
-          "週次枠ごとに、リセットまでに使い切った割合。薄い棒（≥ 付き）は未ログインのまま迎えた周期で、下限値")
+        t("How much of each weekly limit was used by the time it reset, per week. Darker is more; outlined is 100%. Striped cells with ≥ ended while not logged in, so they're lower bounds; – is no data",
+          "週次枠ごとに、リセットまでに使った割合を週ごとに並べたもの。濃いほど多く、枠線は 100%。斜線（≥ 付き）は未ログインのまま迎えた周期で下限値、– はデータなし")
     }
     static var analyticsBurndown: String { t("Current cycle", "今の周期のバーンダウン") }
     static var analyticsBurndownNote: String {
         t("Logged-in accounts. The diagonal is the even pace to 100% at the reset; the dotted tail is the projection at the current pace",
           "ログイン中のアカウント。対角線はリセットでちょうど 100% になるペース、点線は今のペースでの見込み")
     }
-    static var analyticsElapsed: String { t("Cycle elapsed (%)", "周期の経過 (%)") }
+    static var analyticsElapsed: String { t("Time into cycle (%)", "周期の経過時間 (%)") }
+    static var analyticsUsage: String { t("Usage (%)", "消費率 (%)") }
     static var analyticsBalance: String { t("Balance between accounts", "アカウントの偏り") }
     static var analyticsBalanceNote: String {
         t("Current week (all models) at reset, side by side per week",
