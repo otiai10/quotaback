@@ -132,7 +132,7 @@ struct UsagePanel: View {
         VStack(alignment: .leading, spacing: 14) {
             // Expanded lists may not fit on screen, so only the list scrolls and the buttons stay visible
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 18) {
                     ForEach(store.accounts) { account in
                         AccountSection(account: account, expanded: expandedBinding(for: account))
                         if account != store.accounts.last { Divider() }
@@ -198,7 +198,7 @@ struct AccountSection: View {
     private static let headerSpacing: CGFloat = 6
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             header
             content
                 .padding(.leading, Self.chevronWidth + Self.headerSpacing)
@@ -207,7 +207,7 @@ struct AccountSection: View {
 
     @ViewBuilder
     private var content: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             if expanded {
                 ForEach(account.windows) { w in
                     WindowRow(estimate: w)
@@ -254,16 +254,36 @@ struct AccountSection: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
-                Text(account.providerName)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Text(account.isLive ? L10n.loggedIn : L10n.notLoggedIn)
-                    .font(.caption2)
-                    .foregroundStyle(account.isLive ? Color.green : Color.secondary)
+                loginMark
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// The provider's logo (or its name when there is none) with the login state: a green dot and a solid logo
+    /// when logged in, a faded logo otherwise. The words are in the tooltip
+    private var loginMark: some View {
+        let state = account.isLive ? L10n.loggedIn : L10n.notLoggedIn
+        return HStack(spacing: 4) {
+            if account.isLive {
+                Circle().fill(Color.green).frame(width: 6, height: 6)
+            }
+            Group {
+                if let icon = ProviderIcon.image(for: account.key.provider) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 13, height: 13)
+                } else {
+                    Text(account.providerName).font(.caption2)
+                }
+            }
+            .foregroundStyle(account.isLive ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .opacity(account.isLive ? 1 : 0.5)
+        }
+        .help("\(account.providerName) · \(state)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(account.providerName), \(state)")
     }
 
     private func observedText(_ t: Date) -> String {
@@ -275,47 +295,61 @@ struct AccountSection: View {
     }
 }
 
+/// A thin bar drawn in SwiftUI (unlike ProgressView, it also renders in ImageRenderer for the layout tests)
+struct UsageBar: View {
+    let fraction: Double
+    let color: Color
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.1))
+                Capsule().fill(color)
+                    .frame(width: max(fraction > 0 ? 4 : 0, g.size.width * fraction))
+            }
+        }
+        .frame(height: 4)
+    }
+}
+
 struct WindowRow: View {
     let estimate: WindowEstimate
 
     private var window: WindowObservation { estimate.window }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(window.title).font(.subheadline)
                 Spacer()
                 Text(valueText)
-                    .font(.subheadline.monospacedDigit())
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(valueColor)
             }
-            if let detail = window.detail {
-                Text(detail)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            ProgressView(value: min(estimate.lowerBound, 100), total: 100)
-                .tint(color)
-            if resetText != nil || estimate.limitETA != nil {
+            UsageBar(fraction: min(estimate.lowerBound, 100) / 100, color: color)
+            // Under the bar: the limit ETA on the left, the detail (e.g. "$0.00 / $200.00") and the reset on the right
+            if resetText != nil || estimate.limitETA != nil || window.detail != nil {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    if let reset = resetText {
-                        Text(reset)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 4)
                     if let eta = estimate.limitETA {
-                        // When the limit would be hit at this pace
-                        Label(L10n.limitAround(Self.format(eta)), systemImage: "exclamationmark.triangle.fill")
-                            .labelStyle(.titleAndIcon)
+                        // When the limit would be hit at this pace (the bar turns orange too)
+                        Text(L10n.limitAround(Self.format(eta)))
                             .font(.caption2.weight(.semibold).monospacedDigit())
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                            .foregroundStyle(.secondary)
                             .help(L10n.limitAroundHelp)
                     }
+                    Spacer(minLength: 4)
+                    if let detail = window.detail {
+                        Text(detail)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    if let reset = resetText {
+                        Text(reset)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .lineLimit(1)
             }
         }
     }
@@ -328,9 +362,10 @@ struct WindowRow: View {
         }
     }
 
+    /// The number stays in the text color (colored text is hard to read on the translucent panel); the bar carries the color
     private var valueColor: Color {
         if case .reset = estimate.value { return .secondary }
-        return color
+        return .primary
     }
 
     private var resetText: String? {
@@ -347,7 +382,7 @@ struct WindowRow: View {
 
     private var color: Color {
         switch estimate.lowerBound {
-        case ..<60: return .accentColor
+        case ..<60: return estimate.limitETA == nil ? .accentColor : .orange
         case ..<85: return .orange
         default: return .red
         }

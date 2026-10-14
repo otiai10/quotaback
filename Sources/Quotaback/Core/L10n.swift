@@ -55,7 +55,7 @@ enum L10n {
         t("Last observed \(time) (\(ago)) · a lower bound that excludes later usage",
           "最終観測: \(time)（\(ago)）· 以降の使用は含まない下限値")
     }
-    static func limitAround(_ time: String) -> String { t("Limit around \(time)", "\(time) 頃に上限") }
+    static func limitAround(_ time: String) -> String { t("Limit hit \(time)", "\(time) 頃に上限") }
     static var limitAroundHelp: String { t("Projected if you keep this pace", "このペースで使い続けた場合の見込み") }
     static var resetDone: String { t("Reset", "リセット済み") }
     static func resets(_ time: String) -> String { "Resets \(time)" }
