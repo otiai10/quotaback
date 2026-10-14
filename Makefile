@@ -15,7 +15,8 @@ test:
 bundle:
 	./scripts/bundle.sh
 
-# Notarized dist/Quotaback-<version>.zip. VERSION=1.2.3, or the v1.2.3 tag on HEAD
+# Notarized dist/Quotaback-<version>.zip, tagged v<version> locally. VERSION=1.2.3, else the tag on HEAD,
+# else the latest tag with the patch bumped
 release:
 	./scripts/release.sh
 
