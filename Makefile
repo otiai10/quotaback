@@ -4,7 +4,7 @@ APP     = Quotaback.app
 BUNDLE  = dist/$(APP)
 DEST    = $(PREFIX)/$(APP)
 
-.PHONY: build test bundle install uninstall
+.PHONY: build test bundle release install uninstall
 
 build:
 	swift build
@@ -14,6 +14,10 @@ test:
 
 bundle:
 	./scripts/bundle.sh
+
+# Notarized dist/Quotaback-<version>.zip. VERSION=1.2.3, or the v1.2.3 tag on HEAD
+release:
+	./scripts/release.sh
 
 # If running, quit it before replacing, then relaunch afterwards
 install: bundle

@@ -56,7 +56,8 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - `Core/AnalyticsModel.swift` チャート用のデータ整形（純粋関数）。`AnalyticsInput`（`UsageEngine.analytics` が要約・タイトル・ログイン中の枠の点列をまとめて返す。`UsageStore` はウィンドウが開いている間だけ更新）。下限扱いは `resetsAt - lastObservedAt` が15分超。要約の無い周期（間、および最後の要約からリセット済みの分）は値なしの棒で「データなし」（0% にしない）
 - `Main.swift` エントリポイント。`--once` でアプリと同じ経路で1回観測・記録して結果と推定を表示。`--rebuild-cycles` で `cycles.jsonl` を生ログから作り直す
 - `Tests/QuotabackTests` パーサー、認証情報、推定、保存、エンジン（取り違え防止・切り替え検知）のテスト
-- `scripts/bundle.sh` release ビルド → `dist/Quotaback.app`（LSUIElement、ad-hoc 署名）
+- `scripts/bundle.sh` release ビルド → `dist/Quotaback.app`（LSUIElement）。署名は `SIGN_IDENTITY`、無ければ Keychain の「Developer ID Application」（Hardened Runtime + タイムスタンプ。公証の前提）、それも無ければ ad-hoc。`SIGN_IDENTITY=-` で ad-hoc を強制
+- `scripts/release.sh`（`make release`）配布用の `dist/Quotaback-<version>.zip`。Developer ID で署名 → 公証（Keychain のプロファイル `quotaback-notary`、または CI 用に `NOTARY_KEY` / `NOTARY_KEY_ID` / `NOTARY_ISSUER`）→ staple → zip、最後に cask 用の sha256 を出す。バージョンは `VERSION`、無ければ HEAD の `v1.2.3` タグ。未コミットの変更があると止まる
 - `Makefile` `make install` で bundle.sh → `~/Applications/Quotaback.app` に置き換え（`PREFIX` で変更可）。起動中なら終了させて、置き換え後に起動し直す。`make uninstall` もある
 
 ## 観測と推定

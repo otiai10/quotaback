@@ -31,6 +31,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signing (SMAppService login item registration requires a signature)
-codesign --force --sign - "$APP"
+# Signing (SMAppService login item registration requires a signature). Uses SIGN_IDENTITY, else the
+# "Developer ID Application" identity in the keychain (hardened runtime + secure timestamp, as notarization
+# requires), else ad-hoc. SIGN_IDENTITY=- forces ad-hoc
+IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | head -n 1)}"
+if [ -z "$IDENTITY" ] || [ "$IDENTITY" = "-" ]; then
+    codesign --force --sign - "$APP"
+    echo "signed ad-hoc"
+else
+    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+    codesign --verify --strict "$APP"
+    echo "signed with $IDENTITY"
+fi
 echo "built $APP"
