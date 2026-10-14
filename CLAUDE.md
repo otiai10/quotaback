@@ -58,6 +58,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 - `Tests/QuotabackTests` パーサー、認証情報、推定、保存、エンジン（取り違え防止・切り替え検知）のテスト
 - `scripts/bundle.sh` release ビルド → `dist/Quotaback.app`（LSUIElement）。署名は `SIGN_IDENTITY`、無ければ Keychain の「Developer ID Application」（Hardened Runtime + タイムスタンプ。公証の前提）、それも無ければ ad-hoc。`SIGN_IDENTITY=-` で ad-hoc を強制
 - `scripts/release.sh`（`make release`）配布用の `dist/Quotaback-<version>.zip`。Developer ID で署名 → 公証（Keychain のプロファイル `quotaback-notary`、または CI 用に `NOTARY_KEY` / `NOTARY_KEY_ID` / `NOTARY_ISSUER`）→ staple → zip、最後に cask 用の sha256 を出す。バージョンは `VERSION`、無ければ HEAD の `v1.2.3` タグ、それも無ければ最新の `v*.*.*` タグの patch を1つ上げる（タグが無ければ 0.1.0）。成功したら HEAD に `v<version>` の注釈付きタグをローカルで打つ（push はしない）。同じタグが別のコミットにあれば止まる。未コミットの変更があると止まる
+- `scripts/publish.sh`（`make publish`）`make release` の成果物を公開する。zip の中身が そのバージョンかつ公証済みかを確かめ、タグのコミットが origin/main にあることを確かめてから、タグの push → `gh release create` → `otiai10/homebrew-tap` の `Casks/quotaback.rb` の version / sha256 を更新して push。手元の git / gh の認証を使う。済んだ手順は飛ばすので再実行できる。バージョンは `VERSION`、無ければ HEAD のタグ
 - `Makefile` `make install` で bundle.sh → `~/Applications/Quotaback.app` に置き換え（`PREFIX` で変更可）。起動中なら終了させて、置き換え後に起動し直す。`make uninstall` もある
 
 ## 観測と推定

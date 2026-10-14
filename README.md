@@ -100,4 +100,4 @@ make screenshots   # re-render the images in docs/images from synthetic data
 
 `make release` builds `dist/Quotaback-<version>.zip`: signed with the Developer ID Application identity in your keychain, notarized with the `quotaback-notary` profile (`xcrun notarytool store-credentials`) and stapled. It then tags HEAD `v<version>` locally. Without `VERSION`, it bumps the patch of the latest tag.
 
-Then push the tag, attach the zip to a GitHub release, and update `version` and `sha256` (printed by `make release`) in [otiai10/homebrew-tap](https://github.com/otiai10/homebrew-tap/blob/main/Casks/quotaback.rb).
+Push `main`, then `make publish` pushes the tag, creates the GitHub release with the zip and updates `version` and `sha256` in [otiai10/homebrew-tap](https://github.com/otiai10/homebrew-tap/blob/main/Casks/quotaback.rb), using your own `git` and `gh` credentials. Steps already done are skipped, so it can be re-run.

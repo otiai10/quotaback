@@ -3,7 +3,7 @@
 # notarize, staple, and zip the stapled app. Prints the sha256 for the Homebrew cask.
 #
 # VERSION defaults to the v1.2.3 tag on HEAD, else the latest v*.*.* tag with the patch bumped (0.1.0 when
-# there is none). After a successful build, HEAD is tagged v<version> locally (push it yourself). Notarization uses the keychain profile
+# there is none). After a successful build, HEAD is tagged v<version> locally; `make publish` pushes it. Notarization uses the keychain profile
 # NOTARY_PROFILE (default "quotaback-notary", made with `xcrun notarytool store-credentials`), or an
 # App Store Connect API key from NOTARY_KEY (path to the .p8), NOTARY_KEY_ID and NOTARY_ISSUER (for CI)
 set -eu
@@ -76,6 +76,6 @@ ditto -c -k --keepParent "$APP" "$ZIP"
 echo "built $ZIP (notarized)"
 if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
     git tag -a "$TAG" -m "Quotaback $VERSION"
-    echo "tagged $TAG (not pushed: git push origin $TAG)"
+    echo "tagged $TAG locally (make publish to publish it)"
 fi
 echo "sha256 $(shasum -a 256 "$ZIP" | cut -d' ' -f1)"

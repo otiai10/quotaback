@@ -94,4 +94,4 @@ make screenshots   # docs/images の画像を合成データから描き直す
 
 `make release` で `dist/Quotaback-<version>.zip` を作ります。Keychain にある Developer ID Application 証明書で署名し、`quotaback-notary` プロファイル（`xcrun notarytool store-credentials` で作る）で公証して staple したうえで、HEAD にローカルで `v<version>` のタグを打ちます。`VERSION` を指定しなければ、最新のタグの patch を1つ上げます。
 
-そのあと、タグを push して GitHub の Release に zip を添付し、[otiai10/homebrew-tap](https://github.com/otiai10/homebrew-tap/blob/main/Casks/quotaback.rb) の `version` と `sha256`（`make release` が表示します）を更新します。
+`main` を push したあと `make publish` を実行すると、タグを push し、zip を添付した GitHub の Release を作り、[otiai10/homebrew-tap](https://github.com/otiai10/homebrew-tap/blob/main/Casks/quotaback.rb) の `version` と `sha256` を更新します。認証には手元の `git` と `gh` をそのまま使います。済んだ手順は飛ばすので、途中で止まってもやり直せます。

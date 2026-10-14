@@ -4,7 +4,7 @@ APP     = Quotaback.app
 BUNDLE  = dist/$(APP)
 DEST    = $(PREFIX)/$(APP)
 
-.PHONY: build test screenshots bundle release install uninstall
+.PHONY: build test screenshots bundle release publish install uninstall
 
 build:
 	swift build
@@ -23,6 +23,10 @@ bundle:
 # else the latest tag with the patch bumped
 release:
 	./scripts/release.sh
+
+# Push the tag, create the GitHub release and update the Homebrew cask for what make release built
+publish:
+	./scripts/publish.sh
 
 # If running, quit it before replacing, then relaunch afterwards
 install: bundle
