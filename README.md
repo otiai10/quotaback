@@ -5,6 +5,14 @@ Yet another usage status bar.
 ## Install
 
 ```sh
+brew install --cask otiai10/tap/quotaback
+```
+
+Or download `Quotaback-<version>.zip` from [Releases](https://github.com/otiai10/quotaback/releases) and move `Quotaback.app` to `/Applications`. Builds are notarized; macOS 13+ on Apple silicon.
+
+To build from source:
+
+```sh
 git clone git@github.com:otiai10/quotaback.git
 cd quotaback
 make install
@@ -34,6 +42,8 @@ make install
 ```sh
 swift run
 ```
+
+`make release` builds a notarized `dist/Quotaback-<version>.zip` (Developer ID identity and a `quotaback-notary` notarytool profile in the keychain) and tags it locally; without `VERSION` it bumps the patch of the latest tag. Then push the tag, attach the zip to a GitHub release, and update `version` / `sha256` in [otiai10/homebrew-tap](https://github.com/otiai10/homebrew-tap/blob/main/Casks/quotaback.rb).
 
 ## How it works
 
