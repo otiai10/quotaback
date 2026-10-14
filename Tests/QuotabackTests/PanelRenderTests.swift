@@ -49,8 +49,8 @@ final class PanelRenderTests: XCTestCase {
         return [p, s, c]
     }
 
-    func render(_ name: String, scheme: ColorScheme) throws {
-        L10n.apply("en")
+    func render(_ name: String, language: String, scheme: ColorScheme) throws {
+        L10n.apply(language)
         let accounts = sample()
         let view = VStack(alignment: .leading, spacing: 18) {
             ForEach(accounts) { a in
@@ -60,7 +60,8 @@ final class PanelRenderTests: XCTestCase {
         }
         .padding(14)
         .frame(width: 340)
-        .background(scheme == .dark ? Color(white: 0.17) : Color(white: 0.93))
+        .background(scheme == .dark ? Color(white: 0.17) : Color(white: 0.93),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(\.colorScheme, scheme)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
@@ -73,7 +74,8 @@ final class PanelRenderTests: XCTestCase {
     }
 
     func testRendersPanel() throws {
-        try render("panel-light", scheme: .light)
-        try render("panel-dark", scheme: .dark)
+        try render("panel-light", language: "en", scheme: .light)
+        try render("panel-dark", language: "en", scheme: .dark)
+        try render("panel-ja-light", language: "ja", scheme: .light)
     }
 }

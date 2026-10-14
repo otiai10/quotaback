@@ -1,6 +1,23 @@
 # Quotaback
 
-Yet another usage status bar.
+English | [日本語](README.ja.md)
+
+A macOS menu bar app that shows how much of your Claude Code and Codex usage limits you've used, for each of your accounts, so you can tell which account to run on next.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-dark.png">
+    <img src="docs/images/panel-light.png" width="340" alt="The Quotaback panel: usage limits for a personal and a work Claude account and a Codex account">
+  </picture>
+</p>
+
+## Features
+
+- **Every account at a glance.** The menu bar shows the fullest limit of each account, like `🏈 46% · ⭐️ ≥31% · 🤖 0%`.
+- **The same limits as `/usage` and `/status`.** Current session, current week (all models and per model) and usage credits for Claude Code; the 5h and weekly limits for Codex.
+- **When you'll hit the limit.** At your current pace, the bar turns orange and shows when you'd reach 100% before the reset.
+- **Accounts you're not logged in to.** Only the logged-in account can be fetched, so the others keep their last observed value as a lower bound (`≥`). Switching with `/login` is picked up within seconds.
+- **Analytics.** How much of each weekly limit you used by each reset, and how the current cycle is going.
 
 ## Install
 
@@ -8,19 +25,37 @@ Yet another usage status bar.
 brew install --cask otiai10/tap/quotaback
 ```
 
-Or download `Quotaback-<version>.zip` from [Releases](https://github.com/otiai10/quotaback/releases) and move `Quotaback.app` to `/Applications`. Builds are notarized; macOS 13+ on Apple silicon.
+Or download `Quotaback-<version>.zip` from [Releases](https://github.com/otiai10/quotaback/releases) and move `Quotaback.app` to `/Applications`. Releases are signed and notarized, and need macOS 13 or later on Apple silicon.
 
-To build from source:
+To build from source (needs Xcode or the Swift toolchain, 5.9+):
 
 ```sh
-git clone git@github.com:otiai10/quotaback.git
+git clone https://github.com/otiai10/quotaback.git
 cd quotaback
-make install
+make install   # builds and installs to ~/Applications
 ```
+
+## Usage
+
+Run Claude Code (or Codex) once with each account you want to track. Quotaback starts showing an account as soon as it sees it logged in.
+
+- **Click** the menu bar item for the panel: each limit with its reset time, and when you'd hit it at this pace. A green dot next to the logo marks the account you're logged in to.
+- **Right-click** it for Refresh, Launch at Login and Quit.
+- **Analytics** at the bottom of the panel opens a window with two charts:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/analytics-en-dark.png">
+    <img src="docs/images/analytics-en-light.png" width="640" alt="Analytics: a heatmap of usage at each weekly reset, and the current cycle against an even pace">
+  </picture>
+</p>
+
+- **Usage at reset**: how much of each weekly limit was used when it reset, by week. Striped cells are lower bounds (the account wasn't logged in at the end).
+- **Current cycle**: usage of the logged-in account's limits over the cycle. The diagonal is the even pace to 100% at the reset.
 
 ## Configure
 
-`~/.config/quotaback/config.json`
+Settings live in `~/.config/quotaback/config.json` (**Open Settings** in the panel). Changes apply as soon as you save.
 
 ```json
 {
@@ -28,32 +63,41 @@ make install
   "refreshSeconds": 300,
   "accounts": [
     { "email": "personal@example.com", "emoji": "🏈", "label": "Personal" },
-    { "email": "work@example.com", "emoji": "💼", "label": "Work" }
+    { "email": "work@example.com", "emoji": "💼", "label": "Work" },
+    { "email": "personal@example.com", "provider": "codex", "emoji": "🤖" }
   ]
 }
 ```
 
-`emoji` marks the account in the menu bar (`🏈 13% · 💼 ≥43%`). In the panel the account is shown as `emoji` + `label`; without `label`, the part of the email before `@` is shown instead (or the full address if two accounts share it). Without `emoji`, the menu bar uses `label`, or the first letter of the email. Accounts Quotaback observes are added here with just their email.
+| Key | |
+|---|---|
+| `language` | `en` (default) or `ja` |
+| `refreshSeconds` | How often to fetch, in seconds (default 300) |
+| `accounts[].email` | The account. Accounts Quotaback observes are added here automatically with just their email |
+| `accounts[].provider` | `claude` (default) or `codex` |
+| `accounts[].emoji` | Marks the account in the menu bar and the panel |
+| `accounts[].label` | Name in the panel. Without it, the part of the email before `@` is used. Without `emoji`, the menu bar uses `label`, or the first letter of the email |
 
-`language` is `en` (default) or `ja`.
+## How it works
+
+- **Claude Code**: reads the OAuth token Claude Code keeps in the Keychain (`Claude Code-credentials`) and calls the same usage endpoint `/usage` uses. The token is read-only: it is never refreshed or stored. If it has expired, run `claude` with that account once.
+- **Codex CLI**: no API calls. Reads the latest `rate_limits` from the Codex session logs under `~/.codex/sessions`.
+- **Who owns the token** is decided at runtime from `~/.claude.json` (`oauthAccount.emailAddress`) or Codex's `auth.json`, not from your config.
+- **Data**: observations stay on your Mac, in `~/.config/quotaback/`. Estimates (lower bounds, projected resets, time to 100%) are recomputed from them each time.
+
+> [!WARNING]
+> The Claude usage endpoint (`api.anthropic.com/api/oauth/usage`) is undocumented and may change without notice.
 
 ## Development
 
 ```sh
-swift run
+swift run          # run from source
+make test          # tests
+make screenshots   # re-render the images in docs/images from synthetic data
 ```
 
-`make release` builds a notarized `dist/Quotaback-<version>.zip` (Developer ID identity and a `quotaback-notary` notarytool profile in the keychain) and tags it locally; without `VERSION` it bumps the patch of the latest tag. Then push the tag, attach the zip to a GitHub release, and update `version` / `sha256` in [otiai10/homebrew-tap](https://github.com/otiai10/homebrew-tap/blob/main/Casks/quotaback.rb).
+### Releasing
 
-## How it works
+`make release` builds `dist/Quotaback-<version>.zip`: signed with the Developer ID Application identity in your keychain, notarized with the `quotaback-notary` profile (`xcrun notarytool store-credentials`) and stapled. It then tags HEAD `v<version>` locally. Without `VERSION`, it bumps the patch of the latest tag.
 
-Quotaback shows, for each account, the fullest usage limit in the menu bar (`P 13% · W ≥43%`). Click it for per-limit details, reset times and a projection of when you'll hit 100%.
-
-- **Claude Code**: reads the OAuth token Claude Code keeps in the Keychain (`Claude Code-credentials`) and calls the same usage endpoint `/usage` uses. The token is never refreshed or stored; if it has expired, run `claude` with that account once.
-- **Codex CLI**: no API calls. Reads the latest `rate_limits` from Codex session logs under `~/.codex/sessions`.
-- **Who owns the token**: decided at runtime from `~/.claude.json` (`oauthAccount.emailAddress`) or Codex's `auth.json`, not from the labels in your config. Accounts it observes are added to `config.json` automatically.
-- **Multiple accounts**: only the account you're currently logged in to can be fetched. When you switch with `/login`, Quotaback notices within a couple of seconds. Other accounts keep their last observed value, shown with `≥` because they may have been used elsewhere since.
-- **Data**: observations are kept in `~/.config/quotaback/`. Estimates (lower bounds, projected resets, time to 100%) are recomputed from them each time.
-
-> [!WARNING]
-> The Claude usage endpoint (`api.anthropic.com/api/oauth/usage`) is undocumented and may change without notice.
+Then push the tag, attach the zip to a GitHub release, and update `version` and `sha256` (printed by `make release`) in [otiai10/homebrew-tap](https://github.com/otiai10/homebrew-tap/blob/main/Casks/quotaback.rb).

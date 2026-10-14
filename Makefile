@@ -4,13 +4,17 @@ APP     = Quotaback.app
 BUNDLE  = dist/$(APP)
 DEST    = $(PREFIX)/$(APP)
 
-.PHONY: build test bundle release install uninstall
+.PHONY: build test screenshots bundle release install uninstall
 
 build:
 	swift build
 
 test:
 	swift test
+
+# README images in docs/images, rendered from synthetic data
+screenshots:
+	QUOTABACK_RENDER_DIR=$(CURDIR)/docs/images swift test --filter 'PanelRenderTests|AnalyticsRenderTests'
 
 bundle:
 	./scripts/bundle.sh
