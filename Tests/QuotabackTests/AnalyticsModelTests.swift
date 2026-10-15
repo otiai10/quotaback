@@ -120,6 +120,43 @@ final class AnalyticsModelTests: XCTestCase {
         XCTAssertEqual(projected.map(\.percent), [40, 100])
     }
 
+    func testLimitMarksAreTheProjectedLimitsEarliestFirst() {
+        let reset = t0 + 4 * day
+        let start = reset - week
+        let live = [("a", 0.9), ("b", 0.3), ("c", nil)].map { key, share in
+            AnalyticsInput.LiveWindow(account: p, estimate: estimate(window(key, percent: 20, resetsAt: reset),
+                                                                     eta: share.map { start + $0 * week }),
+                                      points: [(start + 0.1 * week, 10), (start + 0.2 * week, 20)])
+        }
+        let marks = AnalyticsModel.limitMarks(AnalyticsModel.burndown(live, titles: titles))
+        XCTAssertEqual(marks.map(\.series), ["b", "a"].map { "\(p.id) \($0)" })
+        XCTAssertEqual(marks.first?.at, start + 0.3 * week)
+        XCTAssertEqual(marks.first?.resetsAt, reset)
+    }
+
+    func testSpreadMovesOnlyOverlappingLabels() {
+        // Far apart: untouched
+        XCTAssertEqual(AnalyticsModel.spread([100, 300, 200], width: 50, within: 0...500), [100, 300, 200])
+        // 200 and 220 overlap: pushed apart evenly around their middle; 400 stays
+        XCTAssertEqual(AnalyticsModel.spread([220, 400, 200], width: 50, within: 0...500), [235, 400, 185])
+        // 200 and 220 push apart to 185 and 235, which now overlaps 150 (50 apart before): all three form one run
+        XCTAssertEqual(AnalyticsModel.spread([150, 200, 220], width: 50, within: 0...500), [140, 190, 240])
+        // Kept inside: the right edge holds the last label at 475
+        XCTAssertEqual(AnalyticsModel.spread([480, 490], width: 50, within: 0...500), [425, 475])
+        // Too many to fit: spread evenly across the whole width, overlapping as little as possible
+        XCTAssertEqual(AnalyticsModel.spread([50, 50, 50], width: 50, within: 0...100), [25, 50, 75])
+    }
+
+    func testDuration() {
+        L10n.apply("en")
+        XCTAssertEqual(L10n.duration(42 * hour + 59 * 60), "1d 18h")
+        XCTAssertEqual(L10n.duration(5 * hour + 3 * 60), "5h 3m")
+        XCTAssertEqual(L10n.duration(9 * 60), "9m")
+        L10n.apply("ja")
+        XCTAssertEqual(L10n.duration(42 * hour), "1日18時間")
+        L10n.apply(nil)
+    }
+
     func estimate(_ w: WindowObservation, eta: Date?) -> WindowEstimate {
         WindowEstimate(window: w, value: .exact(w.percent), nextReset: .known(w.resetsAt ?? t0),
                        observedAt: t0, limitETA: eta)
