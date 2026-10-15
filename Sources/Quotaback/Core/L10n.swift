@@ -82,6 +82,19 @@ enum L10n {
     static var analyticsElapsed: String { t("Time into cycle (%)", "周期の経過時間 (%)") }
     static var analyticsUsage: String { t("Usage (%)", "消費率 (%)") }
     static var analyticsNoData: String { t("No data", "データなし") }
+    /// Tooltip of a limit mark on the burndown: when, how long before the reset, and the reset
+    static func analyticsLimitHelp(_ at: String, _ lead: String, _ reset: String) -> String {
+        t("Limit hit \(at) at the current pace, \(lead) before the reset \(reset)",
+          "このペースだと \(at) に上限（リセット \(reset) の \(lead) 前）")
+    }
+    /// "1d 18h" / "1日18時間". Hours only under a day, minutes only under an hour
+    static func duration(_ seconds: TimeInterval) -> String {
+        let minutes = max(0, Int(seconds / 60))
+        let (d, h, m) = (minutes / 1440, minutes % 1440 / 60, minutes % 60)
+        if d > 0 { return t("\(d)d \(h)h", "\(d)日\(h)時間") }
+        if h > 0 { return t("\(h)h \(m)m", "\(h)時間\(m)分") }
+        return t("\(m)m", "\(m)分")
+    }
 
     // MARK: Fetch errors
 

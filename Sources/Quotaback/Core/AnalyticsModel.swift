@@ -122,6 +122,8 @@ enum AnalyticsModel {
         let elapsed: Double
         let percent: Double
         let kind: Kind
+        /// The reset that ends this cycle
+        let resetsAt: Date
 
         var id: String { "\(series) \(kind) \(at.timeIntervalSince1970)" }
     }
@@ -144,14 +146,64 @@ enum AnalyticsModel {
             let series = "\(lw.account.id) \(w.key)"
             let label = "\(titles(lw.account)) · \(w.title)"
             var points = lw.points.map {
-                BurnPoint(series: series, label: label, at: $0.0, elapsed: elapsed($0.0), percent: $0.1, kind: .observed)
+                BurnPoint(series: series, label: label, at: $0.0, elapsed: elapsed($0.0), percent: $0.1, kind: .observed,
+                          resetsAt: reset)
             }
             if let eta = lw.estimate.limitETA, let last = lw.points.last {
-                points += [BurnPoint(series: series, label: label, at: last.0, elapsed: elapsed(last.0), percent: last.1, kind: .projected),
-                           BurnPoint(series: series, label: label, at: eta, elapsed: elapsed(eta), percent: 100, kind: .projected)]
+                points += [BurnPoint(series: series, label: label, at: last.0, elapsed: elapsed(last.0), percent: last.1, kind: .projected,
+                                     resetsAt: reset),
+                           BurnPoint(series: series, label: label, at: eta, elapsed: elapsed(eta), percent: 100, kind: .projected,
+                                     resetsAt: reset)]
             }
             return points
         }
     }
 
+    /// The end of a projected tail: when the window is projected to hit its limit before the reset
+    struct LimitMark: Identifiable, Hashable {
+        let series: String
+        let label: String
+        let elapsed: Double
+        let at: Date
+        let resetsAt: Date
+
+        var id: String { series }
+    }
+
+    /// The limit marks of `burndown`'s projections, earliest first
+    static func limitMarks(_ points: [BurnPoint]) -> [LimitMark] {
+        points.filter { $0.kind == .projected && $0.percent >= 100 }
+            .sorted { $0.at < $1.at }
+            .map { LimitMark(series: $0.series, label: $0.label, elapsed: $0.elapsed, at: $0.at, resetsAt: $0.resetsAt) }
+    }
+
+    /// Centers for labels `width` wide that want to sit at `xs`, moved as little as possible so that none overlap
+    /// and all stay `within` (best effort: when they can't all fit, they overlap evenly). Same order as `xs`
+    static func spread(_ xs: [Double], width: Double, within bounds: ClosedRange<Double>) -> [Double] {
+        let order = xs.indices.sorted { xs[$0] < xs[$1] }
+        let lo = bounds.lowerBound + width / 2, hi = max(lo, bounds.upperBound - width / 2)
+        // Runs of labels packed side by side; a run sits where the mean of its labels' wishes puts it
+        struct Run { var first: Int; var count: Int; var sum: Double; var start: Double }
+        var runs: [Run] = []
+        for (k, i) in order.enumerated() {
+            let wish = min(hi, max(lo, xs[i]))
+            var run = Run(first: k, count: 1, sum: wish, start: wish)
+            while let prev = runs.last, prev.start + Double(prev.count) * width > run.start {
+                runs.removeLast()
+                let count = prev.count + run.count
+                // Each label's wish minus its offset in the merged run
+                let sum = prev.sum + run.sum - Double(prev.count) * width * Double(run.count)
+                let span = Double(count - 1) * width
+                let start = hi - lo >= span ? min(hi - span, max(lo, sum / Double(count))) : lo
+                run = Run(first: prev.first, count: count, sum: sum, start: start)
+            }
+            runs.append(run)
+        }
+        var out = xs
+        for run in runs {
+            let step = run.count > 1 ? min(width, (hi - lo) / Double(run.count - 1)) : 0
+            for k in 0..<run.count { out[order[run.first + k]] = run.start + Double(k) * step }
+        }
+        return out
+    }
 }

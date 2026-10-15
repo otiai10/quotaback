@@ -150,6 +150,10 @@ struct AnalyticsCharts: View {
         if points.isEmpty {
             empty()
         } else {
+            // Explicit colors so that the limit labels (plain views, not marks) can match their lines
+            let labels = points.map(\.label).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+            let color = { (label: String) in Self.seriesColors[(labels.firstIndex(of: label) ?? 0) % Self.seriesColors.count] }
+            let marks = AnalyticsModel.limitMarks(points)
             Chart {
                 LineMark(x: .value(L10n.analyticsElapsed, 0), y: .value("%", 0), series: .value("Line", "ideal"))
                     .foregroundStyle(Color.secondary)
@@ -169,14 +173,54 @@ struct AnalyticsCharts: View {
                     }
                 }
             }
+            .chartForegroundStyleScale(domain: labels, range: labels.map(color))
             .chartXScale(domain: 0...100)
             .chartYScale(domain: 0...100)
             .chartXAxisLabel(L10n.analyticsElapsed)
             .chartYAxis { AxisMarks(position: .leading) }
             .chartYAxisLabel(L10n.analyticsUsage, position: .leading)
             .chartLegend(position: .bottom, alignment: .leading)
+            // Above the end of each tail, nudged sideways only where labels would overlap or leave the chart
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    let plot = geo[proxy.plotAreaFrame]
+                    let xs = AnalyticsModel.spread(marks.map { plot.minX + (proxy.position(forX: $0.elapsed) ?? 0) },
+                                                   width: Self.limitLabelWidth, within: 0...geo.size.width)
+                    ForEach(Array(zip(marks, xs)), id: \.0.id) { m, x in
+                        limitLabel(m, color: color(m.label))
+                            .position(x: x, y: plot.minY - Self.limitLabelHeight / 2 - 2)
+                    }
+                }
+            }
             .frame(height: 240)
+            .padding(.top, marks.isEmpty ? 0 : Self.limitLabelHeight + 2)
         }
+    }
+
+    /// When the tail hits 100%: the day over the time, in the line's color. Hover for the reset and how much earlier
+    private func limitLabel(_ m: AnalyticsModel.LimitMark, color: Color) -> some View {
+        VStack(spacing: 0) {
+            Text(Self.limitFormat("M/d (E)", m.at))
+            Text(Self.limitFormat("HH:mm", m.at))
+        }
+        .font(.caption2.monospacedDigit().weight(.semibold))
+        .foregroundStyle(color)
+        .fixedSize()
+        .help(L10n.analyticsLimitHelp(WindowRow.format(m.at), L10n.duration(m.resetsAt.timeIntervalSince(m.at)),
+                                      WindowRow.format(m.resetsAt)))
+    }
+
+    /// Room a limit label takes, a little more than "12/30 (Wed)" so that neighbors keep a gap
+    private static let limitLabelWidth: CGFloat = 72
+    private static let limitLabelHeight: CGFloat = 26
+    private static let seriesColors: [Color] = [.blue, .green, .orange, .purple, .red, .teal, .pink, .yellow]
+
+    /// The parts of the panel's "M/d (E) HH:mm"
+    private static func limitFormat(_ format: String, _ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = L10n.locale
+        f.dateFormat = format
+        return f.string(from: d)
     }
 
 }

@@ -35,8 +35,16 @@ final class AnalyticsRenderTests: XCTestCase {
                                        isLimit: true, detail: nil, cadence: .fixed(week))
         let session = WindowObservation(key: "session", title: "Current session", percent: 35, resetsAt: t0 + 2 * hour,
                                         isLimit: true, detail: nil, cadence: .rolling(5 * hour))
+        let fable = WindowObservation(key: "weekly_scoped/Fable", title: "Current week (Fable)", percent: 66, resetsAt: reset,
+                                      isLimit: true, detail: nil, cadence: .fixed(week))
         let start = reset - week
         let live = [
+            // Its limit label is close to weekly_all's, so one of them goes up a level
+            AnalyticsInput.LiveWindow(
+                account: p,
+                estimate: WindowEstimate(window: fable, value: .exact(66), nextReset: .known(reset), observedAt: t0,
+                                         limitETA: start + 0.79 * week),
+                points: [(start + 0.1 * week, 9), (start + 0.25 * week, 30), (start + 0.4 * week, 50), (t0, 66)]),
             AnalyticsInput.LiveWindow(
                 account: p,
                 estimate: WindowEstimate(window: weekly, value: .exact(58), nextReset: .known(reset), observedAt: t0,
