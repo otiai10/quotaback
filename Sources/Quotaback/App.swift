@@ -16,6 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// Closes the panel on clicks in other apps. .transient alone misses them when activation doesn't take
     /// (macOS 14+ treats activate(ignoringOtherApps:) as a request). Mouse-only global monitors need no permission
     private var outsideClickMonitor: Any?
+    private var fadingOut = false
+    private static let fadeInDuration: TimeInterval = 0.14
+    private static let fadeOutDuration: TimeInterval = 0.12
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as an agent app without a Dock icon (same as LSUIElement in Info.plist)
@@ -105,7 +108,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // Without activating, clicking outside doesn't close it
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            fadeIn()
         }
+    }
+
+    /// NSPopover's own animation can't be shortened (and also animates resizing), so it's off and the panel fades itself
+    private func fadeIn() {
+        guard let window = popover.contentViewController?.view.window else { return }
+        window.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.fadeInDuration
+            window.animator().alphaValue = 1
+        }
+    }
+
+    /// Every close request (performClose and .transient) comes through here. Fade out, then close() skips this
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        guard let window = popover.contentViewController?.view.window else { return true }
+        if fadingOut { return false }
+        fadingOut = true
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Self.fadeOutDuration
+            window.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.fadingOut = false
+                self.popover.close()
+            }
+        })
+        return false
     }
 
     func popoverDidShow(_ notification: Notification) {
