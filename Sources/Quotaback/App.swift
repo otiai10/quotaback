@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
     private var titleSubscription: AnyCancellable?
     private var analytics: AnalyticsWindowController!
+    /// Closes the panel on clicks in other apps. .transient alone misses them when activation doesn't take
+    /// (macOS 14+ treats activate(ignoringOtherApps:) as a request). Mouse-only global monitors need no permission
+    private var outsideClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as an agent app without a Dock icon (same as LSUIElement in Info.plist)
@@ -102,6 +105,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // Without activating, clicking outside doesn't close it
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            Task { @MainActor in self?.popover.performClose(nil) }
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
         }
     }
 }
