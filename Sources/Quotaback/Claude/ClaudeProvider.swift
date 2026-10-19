@@ -15,7 +15,7 @@ struct ClaudeProvider: UsageProvider {
                 fetch: {
                     let token = try source.accessToken()
                     let rawName = source.ownerEmail() ?? source.id
-                    let data = try await UsageClient.fetch(token: token)
+                    let data = try await UsageClient.fetch(token: token, account: rawName)
                     // Save before parsing: a response that fails to parse is exactly the one to look at
                     Self.saveRawResponse(data, name: rawName)
                     return FetchedUsage(windows: try UsageClient.parse(data),

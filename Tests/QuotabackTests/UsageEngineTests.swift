@@ -66,6 +66,24 @@ final class UsageEngineTests: XCTestCase {
         UsageEngine(log: ObservationLog.load(directory: try tempDirectory(), now: t0))
     }
 
+    func testThrottlingKeepsConfirmedOwnerButDoesNotInventNewOwner() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "p@example.com")
+        await e.refresh([f.target], now: { t0 })
+        f.error = UsageError.deferred(t0 + 300, rateLimited: true)
+        await e.refresh([f.target], now: { t0 + 20 })
+        let views = await e.accountViews(config: accounts, now: t0 + 20)
+        XCTAssertTrue(views[0].isLive)
+        XCTAssertEqual(views[0].observedAt, t0)
+        XCTAssertTrue(views[0].error?.contains("429") == true)
+        f.owner = "w@example.com"
+        await e.refresh([f.target], now: { t0 + 30 })
+        let switched = await e.accountViews(config: accounts, now: t0 + 30)
+        XCTAssertFalse(switched[0].isLive)
+        XCTAssertFalse(switched[1].isLive)
+        XCTAssertNil(switched[0].error)
+    }
+
     func testSwitchingLoginKeepsLastValueAsLowerBound() async throws {
         let e = try engine()
         let f = FakeTarget(owner: "w@example.com")

@@ -6,6 +6,7 @@ enum UsageError: LocalizedError {
     case tokenExpired
     case http(Int, String)
     case parse(String)
+    case deferred(Date, rateLimited: Bool)
     /// Fetched, but no new observation for the current owner (not shown as an error; the previous value keeps showing as a lower bound)
     case noObservation(String)
 
@@ -16,6 +17,7 @@ enum UsageError: LocalizedError {
         case .http(let code, let body): return "HTTP \(code): \(body.prefix(200))"
         case .parse(let m): return L10n.parseError(m)
         case .noObservation(let m): return m
+        case .deferred(let until, let limited): return L10n.usageDeferred(until, rateLimited: limited)
         }
     }
 }
