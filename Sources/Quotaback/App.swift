@@ -241,6 +241,7 @@ enum LoginItem {
 struct AccountSection: View {
     let account: AccountView
     @Binding var expanded: Bool
+    @State private var loginHovered = false
 
     /// Width of the header's ▸ and its gap to the label. Content is indented by this to line up with the label
     private static let chevronWidth: CGFloat = 10
@@ -287,27 +288,48 @@ struct AccountSection: View {
         }
     }
 
-    /// Click to expand or collapse
+    // アカウント名は開閉、プロバイダアイコンはログイン操作を担当する。
     private var header: some View {
-        Button {
-            expanded.toggle()
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: Self.headerSpacing) {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
-                    .frame(width: Self.chevronWidth)
-                Text(account.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
+        HStack(alignment: .firstTextBaseline, spacing: Self.headerSpacing) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: Self.headerSpacing) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: Self.chevronWidth)
+                    Text(account.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if AccountLogin.command(for: account.key) != nil {
+                Button {
+                    AccountLogin.showMenu(for: account.key)
+                } label: {
+                    loginMark
+                        .padding(3)
+                        .background {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.blue.opacity(loginHovered ? 0.25 : 0))
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 4))
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    loginHovered = hovering
+                }
+                .onDisappear { loginHovered = false }
+            } else {
                 loginMark
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     /// The provider's logo (or its name when there is none) with the login state: a green dot and a solid logo
