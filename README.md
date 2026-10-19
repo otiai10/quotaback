@@ -62,8 +62,8 @@ Settings live in `~/.config/quotaback/config.json` (**Open Settings** in the pan
   "language": "en",
   "refreshSeconds": 300,
   "accounts": [
-    { "email": "personal@example.com", "emoji": "🏈", "label": "Personal" },
-    { "email": "work@example.com", "emoji": "💼", "label": "Work" },
+    { "email": "personal@example.com", "provider": "claude", "emoji": "🏈", "label": "Personal" },
+    { "email": "work@example.com", "provider": "claude", "emoji": "💼", "label": "Work" },
     { "email": "personal@example.com", "provider": "codex", "emoji": "🤖" }
   ]
 }
@@ -73,8 +73,8 @@ Settings live in `~/.config/quotaback/config.json` (**Open Settings** in the pan
 |---|---|
 | `language` | `en` (default) or `ja` |
 | `refreshSeconds` | How often to fetch, in seconds (default 300) |
-| `accounts[].email` | The account. Accounts Quotaback observes are added here automatically with just their email |
-| `accounts[].provider` | `claude` (default) or `codex` |
+| `accounts[].email` | 観測したアカウントはメールアドレスと `provider` で自動的に追加されます |
+| `accounts[].provider` | `claude` か `codex`。保存時は常に明記します。旧設定での省略は `claude` として読み込みます |
 | `accounts[].emoji` | Marks the account in the menu bar and the panel |
 | `accounts[].label` | Name in the panel. Without it, the part of the email before `@` is used. Without `emoji`, the menu bar uses `label`, or the first letter of the email |
 

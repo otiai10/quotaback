@@ -7,13 +7,13 @@ struct AccountConfig: Codable, Identifiable, Hashable {
     var emoji: String?
     /// Display name (e.g. "Personal"). Shown in the panel instead of the email; also in the menu bar if there is no emoji
     var label: String?
-    /// Defaults to "claude"
-    var provider: String?
+    /// 旧設定で省略されている場合は "claude"。保存時は常に明記する
+    var provider: String
     // Legacy format. If set, treated as a Claude credential location (CredentialSource)
     var keychainService: String?
     var credentialsPath: String?
 
-    init(email: String, emoji: String? = nil, label: String? = nil, provider: String? = nil,
+    init(email: String, emoji: String? = nil, label: String? = nil, provider: String = ClaudeProvider.id,
          keychainService: String? = nil, credentialsPath: String? = nil) {
         self.email = email
         self.emoji = emoji
@@ -23,7 +23,7 @@ struct AccountConfig: Codable, Identifiable, Hashable {
         self.credentialsPath = credentialsPath
     }
 
-    var key: AccountKey { AccountKey(provider: provider ?? ClaudeProvider.id, account: email) }
+    var key: AccountKey { AccountKey(provider: provider, account: email) }
     var id: String { key.id }
 
     private enum CodingKeys: String, CodingKey {
@@ -41,7 +41,7 @@ struct AccountConfig: Codable, Identifiable, Hashable {
         // An empty string means unset
         emoji = try c.decodeIfPresent(String.self, forKey: .emoji).flatMap { $0.isEmpty ? nil : $0 }
         label = try c.decodeIfPresent(String.self, forKey: .label).flatMap { $0.isEmpty ? nil : $0 }
-        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? ClaudeProvider.id
         keychainService = try c.decodeIfPresent(String.self, forKey: .keychainService)
         credentialsPath = try c.decodeIfPresent(String.self, forKey: .credentialsPath)
     }
@@ -51,7 +51,7 @@ struct AccountConfig: Codable, Identifiable, Hashable {
         try c.encode(email, forKey: .email)
         try c.encodeIfPresent(emoji, forKey: .emoji)
         try c.encodeIfPresent(label, forKey: .label)
-        try c.encodeIfPresent(provider, forKey: .provider)
+        try c.encode(provider, forKey: .provider)
         try c.encodeIfPresent(keychainService, forKey: .keychainService)
         try c.encodeIfPresent(credentialsPath, forKey: .credentialsPath)
     }
@@ -112,8 +112,7 @@ struct AppConfig: Codable, Equatable {
         guard !missing.isEmpty else { return nil }
         var new = self
         new.accounts += missing.map { key in
-            AccountConfig(email: key.account,
-                          provider: key.provider == ClaudeProvider.id ? nil : key.provider)
+            AccountConfig(email: key.account, provider: key.provider)
         }
         return new
     }

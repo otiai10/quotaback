@@ -144,7 +144,7 @@ final class AppConfigTests: XCTestCase {
         XCTAssertEqual(new.accounts.first?.label, "🏈")
         let reread = try AppConfig.read(from: url).get()
         XCTAssertEqual(reread, new)
-        XCTAssertNil(reread.accounts[0].provider)   // Claude keeps provider omitted
+        XCTAssertEqual(reread.accounts[0].provider, "claude")
         XCTAssertNil(AppConfig.registerAccounts([codex], at: url))   // Second time is a no-op
 
         let broken = #"{"refreshSeconds": 300, "accounts": ["#
@@ -166,6 +166,22 @@ final class AppConfigTests: XCTestCase {
         XCTAssertFalse(written.contains(#""name""#), "the legacy key is not written")
         XCTAssertFalse(written.contains(#""label":"""#))
         XCTAssertFalse(written.contains(#""emoji""#))
+    }
+
+    func testProviderIsExplicitWhenSavingLegacyAndDiscoveredAccounts() throws {
+        let json = #"{"refreshSeconds":300,"accounts":[{"email":"p@example.com"},{"email":"w@example.com","provider":null}]}"#
+        let legacy = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(legacy.accounts.map(\.provider), ["claude", "claude"])
+        let updated = try XCTUnwrap(legacy.addingAccounts([
+            AccountKey(provider: "claude", account: "new@example.com"),
+            AccountKey(provider: "codex", account: "p@example.com"),
+        ]))
+        let data = try JSONEncoder().encode(updated)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let accounts = try XCTUnwrap(object["accounts"] as? [[String: Any]])
+        XCTAssertEqual(accounts.compactMap { $0["provider"] as? String },
+                       ["claude", "claude", "claude", "codex"])
+        XCTAssertEqual(try JSONDecoder().decode(AppConfig.self, from: data), updated)
     }
 
     func testReadFailsOnBrokenJSONInsteadOfFallingBack() throws {
