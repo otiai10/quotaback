@@ -56,8 +56,8 @@ make install   # ビルドして ~/Applications に入れる
   "language": "ja",
   "refreshSeconds": 300,
   "accounts": [
-    { "email": "personal@example.com", "emoji": "🏈", "label": "個人" },
-    { "email": "work@example.com", "emoji": "💼", "label": "仕事" },
+    { "email": "personal@example.com", "provider": "claude", "emoji": "🏈", "label": "個人" },
+    { "email": "work@example.com", "provider": "claude", "emoji": "💼", "label": "仕事" },
     { "email": "personal@example.com", "provider": "codex", "emoji": "🤖" }
   ]
 }
@@ -67,8 +67,8 @@ make install   # ビルドして ~/Applications に入れる
 |---|---|
 | `language` | `en`（既定）か `ja` |
 | `refreshSeconds` | 取得の間隔（秒、既定は 300） |
-| `accounts[].email` | アカウント。観測したアカウントはメールアドレスだけで自動的に書き足されます |
-| `accounts[].provider` | `claude`（既定）か `codex` |
+| `accounts[].email` | アカウント。観測したアカウントはメールアドレスと `provider` で自動的に書き足されます |
+| `accounts[].provider` | `claude` か `codex`。保存時は常に明記します。旧設定で省略されている場合は `claude` として読み込みます |
 | `accounts[].emoji` | メニューバーとパネルでアカウントの印にする絵文字 |
 | `accounts[].label` | パネルに出す名前。無ければメールアドレスの `@` より前を使います。`emoji` が無いとき、メニューバーには `label`、それも無ければメールアドレスの頭文字を出します |
 
