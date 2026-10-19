@@ -120,6 +120,13 @@ actor UsageEngine {
             liveByTarget[t.id] = key
             errorByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .recorded(batch))
+        } catch UsageError.deferred(let until, let limited) {
+            // 待機は認証失敗ではない。確認済みの持ち主が同じ場合だけ状態を維持する。
+            if liveByTarget[t.id] != key { liveByTarget[t.id] = nil }
+            if errorByTarget[t.id]?.0 != key { errorByTarget[t.id] = nil }
+            let message = L10n.usageDeferred(until, rateLimited: limited)
+            if limited { errorByTarget[t.id] = (key, message) }
+            return Report(target: t, owner: before, outcome: .unchanged(message))
         } catch UsageError.noObservation(let message) {
             // Logged in but no new value. The previous observation is stale, so it shows as a lower bound
             liveByTarget[t.id] = key

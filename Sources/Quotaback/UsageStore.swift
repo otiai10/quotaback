@@ -36,7 +36,7 @@ final class UsageStore: ObservableObject {
     /// Retries (seconds later) after skipping mid-switch. The second one comes after the mix-up check settles
     static let retryDelays: [TimeInterval] = [5, UsageEngine.conflictSettle + 5]
     /// When the panel opens, refetch if the last fetch is older than this
-    static let staleOnOpen: TimeInterval = 15
+    static let staleOnOpen: TimeInterval = UsageRequestGate.minimumInterval
 
     init() {
         config = AppConfig.load()

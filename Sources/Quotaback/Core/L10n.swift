@@ -98,6 +98,14 @@ enum L10n {
 
     // MARK: Fetch errors
 
+    static func usageDeferred(_ until: Date, rateLimited: Bool) -> String {
+        let time = until.formatted(Date.FormatStyle(date: .omitted, time: .standard).locale(locale))
+        return rateLimited
+            ? t("Usage API rate limited (429). Updates paused until \(time); showing the last observation.",
+                "使用量 API の呼び出し制限（429）。\(time) まで更新を休止し、前回の値を表示しています。")
+            : t("Updates paused until \(time)", "\(time) まで更新を待機しています")
+    }
+
     static func credentialsError(_ m: String) -> String { t("Can't read credentials: \(m)", "認証情報を読めません: \(m)") }
     static var tokenExpired: String {
         t("Token expired (run claude once with this account to refresh it)",

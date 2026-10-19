@@ -7,7 +7,8 @@ enum UsageClient {
     // MARK: - Fetch
 
     /// Calls the usage API and returns the raw body (HTTP 200 only)
-    static func fetch(token: String) async throws -> Data {
+    static func fetch(token: String, account: String) async throws -> Data {
+        try await UsageRequestGate.shared.acquire(account: account)
         var req = URLRequest(url: endpoint)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue(betaHeader, forHTTPHeaderField: "anthropic-beta")
@@ -16,6 +17,10 @@ enum UsageClient {
 
         let (data, resp) = try await URLSession.shared.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        let retryAfter = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After")
+        if let until = await UsageRequestGate.shared.received(status: code, retryAfter: retryAfter) {
+            throw UsageError.deferred(until, rateLimited: true)
+        }
         guard code == 200 else {
             throw UsageError.http(code, String(data: data, encoding: .utf8) ?? "")
         }
