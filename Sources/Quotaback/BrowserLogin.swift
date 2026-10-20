@@ -4,7 +4,11 @@ import SwiftUI
 /// 非 TTY の子プロセスを認証完了まで保持する。認証 URL・出力・コードは記録しない。
 @MainActor
 final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
+    enum Presentation { case none, manualCode, failure }
+
     static let shared = BrowserLogin()
+    @Published private(set) var activeKey: AccountKey?
+    @Published private(set) var presentation: Presentation = .none
     @Published private(set) var clientName = ""
     @Published private(set) var account = ""
     @Published private(set) var message = ""
@@ -22,6 +26,7 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
     private var output: Pipe?
     private var timeout: Task<Void, Never>?
     private var stopped = false
+    private var failed = false
     private let presentsWindow: Bool
     private let resolveExecutable: (AccountKey) -> URL?
     private let timeoutNanoseconds: UInt64
@@ -36,7 +41,10 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func start(key: AccountKey) {
-        if running { showWindow(); return }
+        guard !running else { return }
+        dismissWindow()
+        activeKey = key
+        failed = false
         clientName = AccountLogin.clientName(for: key)
         account = key.account
         message = ""
@@ -48,10 +56,10 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
         failureHint = nil
         acceptsCode = key.provider == ClaudeProvider.id
         stopped = false
-        showWindow()
         guard let executable = resolveExecutable(key),
               let arguments = AccountLogin.arguments(for: key) else {
             message = "\(AccountLogin.clientName(for: key)) が見つかりません。CLI のインストール先を確認するか、メニューからログインコマンドをコピーしてください。"
+            showWindow(.failure)
             return
         }
         let child = Process()
@@ -97,11 +105,12 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
             timeout = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: limit)
                 guard !Task.isCancelled else { return }
-                self?.cancel(message: "認証の待機時間（10分）を超えました。もう一度お試しください。")
+                self?.cancel(message: "認証の待機時間（10分）を超えました。もう一度お試しください。", showFailure: true)
             }
         } catch {
             message = "認証処理を開始できませんでした: \(error.localizedDescription)"
             cleanup()
+            showWindow(.failure)
         }
     }
 
@@ -123,7 +132,7 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
             codeError = nil
             code = ""
         } catch {
-            cancel(message: "認証コードを送信できませんでした。もう一度お試しください。")
+            cancel(message: "認証コードを送信できませんでした。もう一度お試しください。", showFailure: true)
         }
     }
 
@@ -149,9 +158,11 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
-    func cancel(message: String = "ログインをキャンセルしました。") {
+    func cancel(message: String = "ログインをキャンセルしました。", showFailure: Bool = false) {
         guard running, let child = process else { return }
         stopped = true
+        failed = showFailure
+        dismissWindow()
         self.message = message
         code = ""
         timeout?.cancel()
@@ -165,12 +176,14 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
     private func finished(_ child: Process) {
         guard process === child else { return }
         if !stopped {
+            failed = child.terminationStatus != 0
             message = child.terminationStatus == 0
                 ? "CLI のログインが完了しました。\n作業中のセッションへの反映は保証されません。CLI 側でアカウントを確認してください。"
                 : "ログインを完了できませんでした（終了コード \(child.terminationStatus)）。\n"
                     + (failureHint ?? "今回開いたブラウザのコードを使っているか確認し、ログインを開始し直してください。コマンドをコピーして試すこともできます。")
         }
         cleanup()
+        if failed { showWindow(.failure) } else { dismissWindow() }
     }
 
     private func cleanup() {
@@ -188,7 +201,18 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
         outputTail = ""
     }
 
-    private func showWindow() {
+    func showCodeEntry() {
+        guard running, !stopped, acceptsCode else { return }
+        showWindow(.manualCode)
+    }
+
+    private func dismissWindow() {
+        presentation = .none
+        window?.orderOut(nil)
+    }
+
+    private func showWindow(_ destination: Presentation) {
+        presentation = destination
         guard presentsWindow else { return }
         if window == nil {
             let view = NSHostingController(rootView: BrowserLoginView(login: self))
@@ -200,98 +224,85 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
             panel.center()
             window = panel
         }
+        window?.title = destination == .manualCode ? "認証コードを入力" : "ログインできませんでした"
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func close() { window?.close() }
-    func windowWillClose(_ notification: Notification) { cancel() }
+    func close() { dismissWindow() }
+    func windowWillClose(_ notification: Notification) {
+        presentation = .none
+    }
 }
 
 private struct BrowserLoginView: View {
     @ObservedObject var login: BrowserLogin
-    @State private var showsCodeEntry = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(spacing: 24) {
+            VStack(spacing: 8) {
                 Text("\(login.clientName) にログイン")
-                    .font(.title2.weight(.semibold))
+                    .font(.system(size: 17, weight: .semibold))
                 Text(login.account)
-                    .font(.body)
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity)
+            .multilineTextAlignment(.center)
+            .padding(.top, 8)
 
-            HStack(alignment: .top, spacing: 12) {
-                if login.running {
-                    ProgressView().controlSize(.small)
-                        .padding(.top, 2)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(login.message)
+            if login.presentation == .failure {
+                Text(login.message)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if login.presentation == .manualCode {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("認可後に表示される、# を含むコードを貼り付けてください。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    if login.running {
-                        Text("完了すると、このウィンドウに結果が表示されます。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
 
-            if login.running && login.acceptsCode {
-                DisclosureGroup("コードを手動で入力", isExpanded: $showsCodeEntry) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Claude Code の認可後にコードが表示された場合だけ使用します。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("CLI 用コード").font(.callout.weight(.medium))
-                            HStack(spacing: 8) {
-                                SecureField("# を含むコード全体を貼り付け", text: $login.code)
-                                    .onSubmit { login.submitCode() }
-                                    .accessibilityLabel("CLI 用コード")
-                                Button("送信") { login.submitCode() }
-                                    .disabled(!login.readyForCode || login.submittingCode || login.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            SecureField("# を含むコード全体を貼り付け", text: $login.code)
+                                .onSubmit { login.submitCode() }
+                                .accessibilityLabel("CLI 用コード")
+                            Button("送信") { login.submitCode() }
+                                .disabled(!login.readyForCode || login.submittingCode || login.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
-
-                        if let error = login.codeError {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .foregroundStyle(.red)
-                                .font(.callout)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } else if login.submittingCode {
-                            Text("コードを確認しています…")
-                                .font(.callout).foregroundStyle(.secondary)
-                        }
-
-                        Text("メールの6桁コードはここには入力せず、メールアドレスを入力した元のブラウザタブで使用してください。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.top, 10)
+
+                    if let error = login.codeError {
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .foregroundStyle(.red)
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if login.submittingCode {
+                        Text("コードを確認しています…")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+
+                    Text("メールの6桁コードは、元のブラウザタブに入力してください。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .font(.system(size: 12))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Divider()
             HStack {
                 Spacer()
-                Button(login.running ? "キャンセル" : "閉じる") {
-                    if login.running { login.cancel() } else { login.close() }
-                }
+                Button("閉じる") { login.close() }
                 .keyboardShortcut(.cancelAction)
             }
         }
         .padding(24)
-        .frame(width: 440)
-        .onChange(of: login.running) { _ in showsCodeEntry = false }
+        .frame(width: 360)
     }
 }

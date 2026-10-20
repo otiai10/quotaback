@@ -246,6 +246,7 @@ struct AccountSection: View {
     let account: AccountView
     @Binding var expanded: Bool
     @State private var loginHovered = false
+    @ObservedObject private var login = BrowserLogin.shared
 
     /// Width of the header's ▸ and its gap to the label. Content is indented by this to line up with the label
     private static let chevronWidth: CGFloat = 10
@@ -254,6 +255,23 @@ struct AccountSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             header
+            if login.running && login.activeKey == account.key {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    if login.acceptsCode {
+                        Button("ログイン中…") { login.showCodeEntry() }
+                            .buttonStyle(.link)
+                            .help("認証コードを手動で入力")
+                    } else {
+                        Text("ログイン中…").foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("キャンセル") { login.cancel() }
+                        .buttonStyle(.borderless)
+                }
+                .font(.caption)
+                .padding(.leading, Self.chevronWidth + Self.headerSpacing)
+            }
             content
                 .padding(.leading, Self.chevronWidth + Self.headerSpacing)
         }

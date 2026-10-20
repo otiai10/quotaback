@@ -27,6 +27,17 @@ final class BrowserLoginTests: XCTestCase {
         let login = BrowserLogin(presentsWindow: false, resolveExecutable: { _ in starts += 1; return url })
         login.start(key: key)
         XCTAssertTrue(login.running)
+        XCTAssertEqual(login.activeKey, key)
+        XCTAssertEqual(login.presentation, .none)
+        login.start(key: AccountKey(provider: "codex", account: "other@example.com"))
+        XCTAssertEqual(login.activeKey, key)
+        XCTAssertEqual(login.presentation, .none)
+        login.showCodeEntry()
+        XCTAssertEqual(login.presentation, .manualCode)
+        login.close()
+        XCTAssertEqual(login.presentation, .none)
+        XCTAssertTrue(login.running)
+        login.showCodeEntry()
         login.start(key: key)
         XCTAssertEqual(starts, 1)
         for _ in 0..<100 {
@@ -49,6 +60,7 @@ final class BrowserLoginTests: XCTestCase {
         try await waitForExit(login)
         XCTAssertTrue(login.message.contains("ログインが完了"))
         XCTAssertEqual(login.code, "")
+        XCTAssertEqual(login.presentation, .none)
     }
 
     func testFailureAndCancellation() async throws {
@@ -57,12 +69,14 @@ final class BrowserLoginTests: XCTestCase {
         login.start(key: key)
         try await waitForExit(login)
         XCTAssertTrue(login.message.contains("終了コード 7"))
+        XCTAssertEqual(login.presentation, .failure)
         let waiting = try script("exec /bin/sleep 30\n")
         let cancelled = BrowserLogin(presentsWindow: false, resolveExecutable: { _ in waiting })
         cancelled.start(key: key)
         cancelled.cancel()
         try await waitForExit(cancelled)
         XCTAssertTrue(cancelled.message.contains("キャンセル"))
+        XCTAssertEqual(cancelled.presentation, .none)
     }
 
     func testCLIInputErrorAllowsResubmissionWithoutExposingOutput() async throws {
@@ -96,6 +110,17 @@ final class BrowserLoginTests: XCTestCase {
         XCTAssertTrue(login.message.contains("ログインが完了"))
     }
 
+    func testCodexDoesNotOfferManualCode() async throws {
+        let waiting = try script("exec /bin/sleep 30\n")
+        let login = BrowserLogin(presentsWindow: false, resolveExecutable: { _ in waiting })
+        login.start(key: AccountKey(provider: "codex", account: "user@example.com"))
+        XCTAssertFalse(login.acceptsCode)
+        login.showCodeEntry()
+        XCTAssertEqual(login.presentation, .none)
+        login.cancel()
+        try await waitForExit(login)
+    }
+
     func testTimeoutAndMissingCLI() async throws {
         let waiting = try script("exec /bin/sleep 30\n")
         let login = BrowserLogin(presentsWindow: false, resolveExecutable: { _ in waiting },
@@ -103,9 +128,11 @@ final class BrowserLoginTests: XCTestCase {
         login.start(key: key)
         try await waitForExit(login)
         XCTAssertTrue(login.message.contains("待機時間"))
+        XCTAssertEqual(login.presentation, .failure)
         let missing = BrowserLogin(presentsWindow: false, resolveExecutable: { _ in nil })
         missing.start(key: key)
         XCTAssertFalse(missing.running)
         XCTAssertTrue(missing.message.contains("見つかりません"))
+        XCTAssertEqual(missing.presentation, .failure)
     }
 }

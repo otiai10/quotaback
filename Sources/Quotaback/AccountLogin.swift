@@ -2,14 +2,30 @@ import AppKit
 
 /// ブラウザを使った CLI 認証と、コマンドのコピーを提供する。
 enum AccountLogin {
+    @MainActor
     static func showMenu(for key: AccountKey) {
         guard let command = command(for: key) else { return }
         let actions = LoginMenuActions(key: key, command: command)
         let menu = NSMenu()
         menu.addItem(withTitle: key.account, action: nil, keyEquivalent: "")
-        let item = menu.addItem(withTitle: "ブラウザで \(clientName(for: key)) にログイン…",
-                                action: #selector(LoginMenuActions.login), keyEquivalent: "")
-        item.target = actions
+        if BrowserLogin.shared.running {
+            let current = BrowserLogin.shared
+            menu.addItem(withTitle: "\(current.account) にログイン中…", action: nil, keyEquivalent: "")
+            if current.activeKey == key {
+                if current.acceptsCode {
+                    let code = menu.addItem(withTitle: "認証コードを入力…",
+                                            action: #selector(LoginMenuActions.enterCode), keyEquivalent: "")
+                    code.target = actions
+                }
+                let cancel = menu.addItem(withTitle: "ログインをキャンセル",
+                                          action: #selector(LoginMenuActions.cancel), keyEquivalent: "")
+                cancel.target = actions
+            }
+        } else {
+            let item = menu.addItem(withTitle: "ブラウザで \(clientName(for: key)) にログイン…",
+                                    action: #selector(LoginMenuActions.login), keyEquivalent: "")
+            item.target = actions
+        }
         let copy = menu.addItem(withTitle: "ログインコマンドをコピー",
                                 action: #selector(LoginMenuActions.copyCommand), keyEquivalent: "")
         copy.target = actions
@@ -68,6 +84,14 @@ private final class LoginMenuActions: NSObject {
 
     @objc func login() {
         Task { @MainActor in BrowserLogin.shared.start(key: key) }
+    }
+
+    @objc func enterCode() {
+        Task { @MainActor in BrowserLogin.shared.showCodeEntry() }
+    }
+
+    @objc func cancel() {
+        Task { @MainActor in BrowserLogin.shared.cancel() }
     }
 
     @objc func copyCommand() {
