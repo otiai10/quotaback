@@ -33,7 +33,7 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
 
     init(presentsWindow: Bool = true,
          resolveExecutable: @escaping (AccountKey) -> URL? = AccountLogin.executable,
-         timeoutNanoseconds: UInt64 = 600_000_000_000) {
+         timeoutNanoseconds: UInt64 = 300_000_000_000) {
         self.presentsWindow = presentsWindow
         self.resolveExecutable = resolveExecutable
         self.timeoutNanoseconds = timeoutNanoseconds
@@ -105,7 +105,7 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
             timeout = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: limit)
                 guard !Task.isCancelled else { return }
-                self?.cancel(message: "認証の待機時間（10分）を超えました。もう一度お試しください。", showFailure: true)
+                self?.cancel(message: "認証の待機時間（5分）を超えました。もう一度お試しください。", showFailure: true)
             }
         } catch {
             message = "認証処理を開始できませんでした: \(error.localizedDescription)"
