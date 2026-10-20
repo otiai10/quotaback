@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
     static let shared = BrowserLogin()
+    @Published private(set) var clientName = ""
+    @Published private(set) var account = ""
     @Published private(set) var message = ""
     @Published private(set) var running = false
     @Published private(set) var acceptsCode = false
@@ -35,6 +37,9 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
 
     func start(key: AccountKey) {
         if running { showWindow(); return }
+        clientName = AccountLogin.clientName(for: key)
+        account = key.account
+        message = ""
         code = ""
         codeError = nil
         readyForCode = false
@@ -84,7 +89,7 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
         process = child
         input = stdin
         output = stdout
-        message = "\(AccountLogin.clientName(for: key)) の認証をブラウザで完了してください。\n対象: \(key.account)\nブラウザ上でもアカウントを確認してください。"
+        message = "ブラウザでの操作を待っています"
         do {
             try child.run()
             running = true
@@ -205,36 +210,88 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
 
 private struct BrowserLoginView: View {
     @ObservedObject var login: BrowserLogin
+    @State private var showsCodeEntry = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(login.message).fixedSize(horizontal: false, vertical: true)
-            if login.running {
-                ProgressView().controlSize(.small)
-                if login.acceptsCode {
-                    DisclosureGroup("認可後に CLI 用コードが表示された場合") {
-                        HStack {
-                            SecureField("CLI 用コード（# を含む）", text: $login.code)
-                                .onSubmit { login.submitCode() }
-                            Button("送信") { login.submitCode() }
-                                .disabled(!login.readyForCode || login.submittingCode || login.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }.padding(.top, 8)
-                        if let error = login.codeError {
-                            Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            Text(login.submittingCode ? "コードを確認しています…" : "メールログインの6桁コードは、元のブラウザタブに入力してください。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(login.clientName) にログイン")
+                    .font(.title2.weight(.semibold))
+                Text(login.account)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                if login.running {
+                    ProgressView().controlSize(.small)
+                        .padding(.top, 2)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(login.message)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if login.running {
+                        Text("完了すると、このウィンドウに結果が表示されます。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+
+            if login.running && login.acceptsCode {
+                DisclosureGroup("コードを手動で入力", isExpanded: $showsCodeEntry) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Claude Code の認可後にコードが表示された場合だけ使用します。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("CLI 用コード").font(.callout.weight(.medium))
+                            HStack(spacing: 8) {
+                                SecureField("# を含むコード全体を貼り付け", text: $login.code)
+                                    .onSubmit { login.submitCode() }
+                                    .accessibilityLabel("CLI 用コード")
+                                Button("送信") { login.submitCode() }
+                                    .disabled(!login.readyForCode || login.submittingCode || login.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+                        }
+
+                        if let error = login.codeError {
+                            Label(error, systemImage: "exclamationmark.circle")
+                                .foregroundStyle(.red)
+                                .font(.callout)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else if login.submittingCode {
+                            Text("コードを確認しています…")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+
+                        Text("メールの6桁コードはここには入力せず、メールアドレスを入力した元のブラウザタブで使用してください。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.top, 10)
+                }
+            }
+
+            Divider()
             HStack {
                 Spacer()
                 Button(login.running ? "キャンセル" : "閉じる") {
                     if login.running { login.cancel() } else { login.close() }
                 }
+                .keyboardShortcut(.cancelAction)
             }
         }
-        .padding(20)
-        .frame(width: 420)
+        .padding(24)
+        .frame(width: 440)
+        .onChange(of: login.running) { _ in showsCodeEntry = false }
     }
 }
