@@ -34,6 +34,11 @@ final class BrowserLoginTests: XCTestCase {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertTrue(login.readyForCode)
+        login.code = "123456"
+        login.submitCode()
+        XCTAssertTrue(login.codeError?.contains("元のブラウザタブ") == true)
+        XCTAssertEqual(login.code, "123456")
+        XCTAssertFalse(login.submittingCode)
         login.code = "incomplete"
         login.submitCode()
         XCTAssertNotNil(login.codeError)

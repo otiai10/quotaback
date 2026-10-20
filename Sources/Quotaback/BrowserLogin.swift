@@ -103,8 +103,12 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
     func submitCode() {
         let value = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard running, !stopped, readyForCode, !submittingCode, !value.isEmpty else { return }
+        if value.count == 6, value.allSatisfy({ $0 >= "0" && $0 <= "9" }) {
+            codeError = "その6桁はブラウザのログイン確認コードです。メールアドレスを入力した元のブラウザタブへ戻り、そちらに入力してください。"
+            return
+        }
         guard Self.isCompleteCode(value) else {
-            codeError = "コードが不完全です。ブラウザのコピー操作で、# を含む認証コード全体を貼り付けてください。"
+            codeError = "ここには Claude Code の認可後に表示される、# を含む CLI 用コードを入力してください。"
             return
         }
         do {
@@ -207,9 +211,9 @@ private struct BrowserLoginView: View {
             if login.running {
                 ProgressView().controlSize(.small)
                 if login.acceptsCode {
-                    DisclosureGroup("ブラウザに認証コードが表示された場合") {
+                    DisclosureGroup("認可後に CLI 用コードが表示された場合") {
                         HStack {
-                            SecureField("認証コード", text: $login.code)
+                            SecureField("CLI 用コード（# を含む）", text: $login.code)
                                 .onSubmit { login.submitCode() }
                             Button("送信") { login.submitCode() }
                                 .disabled(!login.readyForCode || login.submittingCode || login.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -217,7 +221,7 @@ private struct BrowserLoginView: View {
                         if let error = login.codeError {
                             Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
                         } else {
-                            Text(login.submittingCode ? "コードを確認しています…" : "# を含む認証コード全体を貼り付けてください。")
+                            Text(login.submittingCode ? "コードを確認しています…" : "メールログインの6桁コードは、元のブラウザタブに入力してください。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
