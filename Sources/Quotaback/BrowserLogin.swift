@@ -8,7 +8,12 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var message = ""
     @Published private(set) var running = false
     @Published private(set) var acceptsCode = false
+    @Published private(set) var readyForCode = false
+    @Published private(set) var submittingCode = false
+    @Published private(set) var codeError: String?
     @Published var code = ""
+    private var outputTail = ""
+    private var failureHint: String?
     private var window: NSWindow?
     private var process: Process?
     private var input: Pipe?
@@ -31,6 +36,11 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
     func start(key: AccountKey) {
         if running { showWindow(); return }
         code = ""
+        codeError = nil
+        readyForCode = false
+        submittingCode = false
+        outputTail = ""
+        failureHint = nil
         acceptsCode = key.provider == ClaudeProvider.id
         stopped = false
         showWindow()
@@ -59,9 +69,14 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
         child.standardInput = stdin
         child.standardOutput = stdout
         child.standardError = stdout
-        // パイプの詰まりを防ぐ。認証 URL やトークンを UI・ログへ転送しない。
+        // 既知の状態メッセージだけを分類し、出力本文や認証情報は表示・保存しない。
         stdout.fileHandleForReading.readabilityHandler = { handle in
-            if handle.availableData.isEmpty { handle.readabilityHandler = nil }
+            let data = handle.availableData
+            if data.isEmpty { handle.readabilityHandler = nil; return }
+            Task { @MainActor in
+                guard self.process === child else { return }
+                self.consumeOutput(data)
+            }
         }
         child.terminationHandler = { child in
             Task { @MainActor in self.finished(child) }
@@ -87,12 +102,41 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
 
     func submitCode() {
         let value = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard running, !stopped, !value.isEmpty else { return }
+        guard running, !stopped, readyForCode, !submittingCode, !value.isEmpty else { return }
+        guard Self.isCompleteCode(value) else {
+            codeError = "コードが不完全です。ブラウザのコピー操作で、# を含む認証コード全体を貼り付けてください。"
+            return
+        }
         do {
-            try input?.fileHandleForWriting.write(contentsOf: Data((value + "\n").utf8))
+            guard let input else { return }
+            try input.fileHandleForWriting.write(contentsOf: Data((value + "\n").utf8))
+            submittingCode = true
+            codeError = nil
             code = ""
         } catch {
             cancel(message: "認証コードを送信できませんでした。もう一度お試しください。")
+        }
+    }
+
+    static func isCompleteCode(_ value: String) -> Bool {
+        let parts = value.split(separator: "#", omittingEmptySubsequences: false)
+        return parts.count == 2 && parts.allSatisfy { !$0.isEmpty }
+            && !value.contains(where: { $0.isWhitespace })
+    }
+
+    private func consumeOutput(_ data: Data) {
+        outputTail = String((outputTail + String(decoding: data, as: UTF8.self)).suffix(4096))
+        if outputTail.contains("Paste code here if prompted") { readyForCode = true }
+        if outputTail.contains("Invalid code. Please make sure the full code was copied.") {
+            codeError = "コードが受け付けられませんでした。# を含むコード全体をコピーして再送してください。"
+            submittingCode = false
+            outputTail = ""
+        } else if outputTail.contains("That code is not from this sign-in") {
+            codeError = "別のログイン操作のコードです。今回開いた認証画面のコードを入力してください。"
+            submittingCode = false
+            outputTail = ""
+        } else if outputTail.contains("Token exchange failed") || outputTail.contains("invalid_grant") {
+            failureHint = "コードが期限切れ・使用済み、または別の認証操作のものの可能性があります。ログインを開始し直してください。"
         }
     }
 
@@ -114,7 +158,8 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
         if !stopped {
             message = child.terminationStatus == 0
                 ? "CLI のログインが完了しました。\n作業中のセッションへの反映は保証されません。CLI 側でアカウントを確認してください。"
-                : "ログインを完了できませんでした（終了コード \(child.terminationStatus)）。\n別の認証処理が動いていないか確認してください。コマンドをコピーして試すこともできます。"
+                : "ログインを完了できませんでした（終了コード \(child.terminationStatus)）。\n"
+                    + (failureHint ?? "今回開いたブラウザのコードを使っているか確認し、ログインを開始し直してください。コマンドをコピーして試すこともできます。")
         }
         cleanup()
     }
@@ -129,6 +174,9 @@ final class BrowserLogin: NSObject, ObservableObject, NSWindowDelegate {
         process = nil
         running = false
         code = ""
+        readyForCode = false
+        submittingCode = false
+        outputTail = ""
     }
 
     private func showWindow() {
@@ -164,8 +212,14 @@ private struct BrowserLoginView: View {
                             SecureField("認証コード", text: $login.code)
                                 .onSubmit { login.submitCode() }
                             Button("送信") { login.submitCode() }
-                                .disabled(login.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                .disabled(!login.readyForCode || login.submittingCode || login.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }.padding(.top, 8)
+                        if let error = login.codeError {
+                            Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text(login.submittingCode ? "コードを確認しています…" : "# を含む認証コード全体を貼り付けてください。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

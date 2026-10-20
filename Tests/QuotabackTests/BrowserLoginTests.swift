@@ -22,14 +22,24 @@ final class BrowserLoginTests: XCTestCase {
     }
 
     func testManualCodeAndDuplicateStart() async throws {
-        let url = try script("read -r code\n[ \"$code\" = 'test-code' ]\n")
+        let url = try script("printf 'Paste code here if prompted > '\nread -r code\n[ \"$code\" = 'test#state' ]\n")
         var starts = 0
         let login = BrowserLogin(presentsWindow: false, resolveExecutable: { _ in starts += 1; return url })
         login.start(key: key)
         XCTAssertTrue(login.running)
         login.start(key: key)
         XCTAssertEqual(starts, 1)
-        login.code = "test-code"
+        for _ in 0..<100 {
+            if login.readyForCode { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(login.readyForCode)
+        login.code = "incomplete"
+        login.submitCode()
+        XCTAssertNotNil(login.codeError)
+        XCTAssertEqual(login.code, "incomplete")
+        XCTAssertFalse(login.submittingCode)
+        login.code = "test#state"
         login.submitCode()
         try await waitForExit(login)
         XCTAssertTrue(login.message.contains("ログインが完了"))
@@ -48,6 +58,37 @@ final class BrowserLoginTests: XCTestCase {
         cancelled.cancel()
         try await waitForExit(cancelled)
         XCTAssertTrue(cancelled.message.contains("キャンセル"))
+    }
+
+    func testCLIInputErrorAllowsResubmissionWithoutExposingOutput() async throws {
+        let url = try script("""
+        printf 'Paste code here if prompted > '
+        read -r code
+        printf 'private-output Invalid code. Please make sure '
+        /bin/sleep 0.05
+        printf 'the full code was copied.\n'
+        read -r code
+        [ "$code" = 'retry#state' ]
+        """)
+        let login = BrowserLogin(presentsWindow: false, resolveExecutable: { _ in url })
+        login.start(key: key)
+        for _ in 0..<100 {
+            if login.readyForCode { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        login.code = "first#state"
+        login.submitCode()
+        for _ in 0..<100 {
+            if login.codeError != nil { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertNotNil(login.codeError)
+        XCTAssertFalse(login.submittingCode)
+        XCTAssertFalse(login.codeError?.contains("private-output") ?? true)
+        login.code = "retry#state"
+        login.submitCode()
+        try await waitForExit(login)
+        XCTAssertTrue(login.message.contains("ログインが完了"))
     }
 
     func testTimeoutAndMissingCLI() async throws {
