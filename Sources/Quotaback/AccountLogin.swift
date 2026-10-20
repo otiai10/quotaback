@@ -13,11 +13,6 @@ enum AccountLogin {
         let copy = menu.addItem(withTitle: "ログインコマンドをコピー",
                                 action: #selector(LoginMenuActions.copyCommand), keyEquivalent: "")
         copy.target = actions
-        menu.addItem(.separator())
-        menu.addItem(withTitle: key.provider == ClaudeProvider.id
-                     ? "ブラウザで認証を完了してください"
-                     : "ブラウザで対象アカウントを選んでください", action: nil, keyEquivalent: "")
-        menu.addItem(withTitle: "対象は CLI のログインです", action: nil, keyEquivalent: "")
         _ = withExtendedLifetime(actions) {
             menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
         }
