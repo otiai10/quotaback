@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private static let fadeInDuration: TimeInterval = 0.14
     private static let fadeOutDuration: TimeInterval = 0.12
 
+    func applicationWillTerminate(_ notification: Notification) {
+        BrowserLogin.shared.cancel()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as an agent app without a Dock icon (same as LSUIElement in Info.plist)
         NSApp.setActivationPolicy(.accessory)

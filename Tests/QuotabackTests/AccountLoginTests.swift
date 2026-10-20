@@ -2,6 +2,14 @@ import XCTest
 @testable import Quotaback
 
 final class AccountLoginTests: XCTestCase {
+    func testBrowserLoginUsesLiteralArgumentsWithoutShell() {
+        let email = "a'b;$(printf injected)@example.com"
+        XCTAssertEqual(AccountLogin.arguments(for: AccountKey(provider: "claude", account: email)),
+                       ["auth", "login", "--claudeai", "--email", email])
+        XCTAssertEqual(AccountLogin.arguments(for: AccountKey(provider: "codex", account: email)), ["login"])
+        XCTAssertNil(AccountLogin.arguments(for: AccountKey(provider: "unknown", account: email)))
+    }
+
     func testProviderCommands() {
         XCTAssertEqual(AccountLogin.command(for: AccountKey(provider: "claude", account: "user@example.com")),
                        "claude auth login --email 'user@example.com'")
