@@ -98,12 +98,25 @@ enum L10n {
 
     // MARK: Fetch errors
 
+    /// Log line when the gate declines to call. The 429 itself is logged once, by `rateLimited`
     static func usageDeferred(_ until: Date, rateLimited: Bool) -> String {
         let time = until.formatted(Date.FormatStyle(date: .omitted, time: .standard).locale(locale))
         return rateLimited
-            ? t("Usage API rate limited (429). Updates paused until \(time); showing the last observation.",
-                "使用量 API の呼び出し制限（429）。\(time) まで更新を休止し、前回の値を表示しています。")
+            ? t("Updates paused until \(time) (rate limit)", "\(time) まで更新を休止中（呼び出し制限）")
             : t("Updates paused until \(time)", "\(time) まで更新を待機しています")
+    }
+
+    /// Log line for the moment the server answers 429 (the only line that names the status)
+    static func rateLimited(_ until: Date, retryAfter: String?) -> String {
+        let time = until.formatted(Date.FormatStyle(date: .omitted, time: .standard).locale(locale))
+        let header = retryAfter.map { "Retry-After: \($0)" } ?? t("no Retry-After", "Retry-After なし")
+        return t("HTTP 429 (\(header)); updates paused until \(time)",
+                 "HTTP 429（\(header)）。\(time) まで更新を休止します")
+    }
+
+    /// Panel caption while paused: a quiet note, not an error
+    static func pausedUntil(_ time: String) -> String {
+        t("Updates paused until \(time) · showing the last value", "\(time) まで更新を休止中 · 前回の値を表示")
     }
 
     static func credentialsError(_ m: String) -> String { t("Can't read credentials: \(m)", "認証情報を読めません: \(m)") }

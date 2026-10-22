@@ -7,6 +7,8 @@ actor UsageEngine {
     private var liveByTarget: [String: AccountKey] = [:]
     /// Target → the last failure (the owner at that time and the message)
     private var errorByTarget: [String: (AccountKey, String)] = [:]
+    /// Targets the gate is holding back after a 429 (shown as a quiet note with the last value, not as an error)
+    private var pausedByTarget: [String: (AccountKey, Date)] = [:]
     /// Credential hash → the account it was last assigned to (in memory only)
     private var fingerprintOwner: [String: AccountKey] = [:]
     /// Hash that conflicts with its assignment → the newly claimed owner and when it was first seen
@@ -119,24 +121,37 @@ actor UsageEngine {
             log.record(batch)
             liveByTarget[t.id] = key
             errorByTarget[t.id] = nil
+            pausedByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .recorded(batch))
         } catch UsageError.deferred(let until, let limited) {
-            // 待機は認証失敗ではない。確認済みの持ち主が同じ場合だけ状態を維持する。
+            // Waiting is not an auth failure: the state is kept only while the confirmed owner is the same
             if liveByTarget[t.id] != key { liveByTarget[t.id] = nil }
             if errorByTarget[t.id]?.0 != key { errorByTarget[t.id] = nil }
-            let message = L10n.usageDeferred(until, rateLimited: limited)
-            if limited { errorByTarget[t.id] = (key, message) }
-            return Report(target: t, owner: before, outcome: .unchanged(message))
+            if limited { pause(t, key, until) }
+            return Report(target: t, owner: before, outcome: .unchanged(L10n.usageDeferred(until, rateLimited: limited)))
+        } catch UsageError.rateLimited(let until, let retryAfter) {
+            // The server said 429. Logged once here; the panel just shows the pause with the last value
+            if liveByTarget[t.id] != key { liveByTarget[t.id] = nil }
+            pause(t, key, until)
+            return Report(target: t, owner: before, outcome: .unchanged(L10n.rateLimited(until, retryAfter: retryAfter)))
         } catch UsageError.noObservation(let message) {
             // Logged in but no new value. The previous observation is stale, so it shows as a lower bound
             liveByTarget[t.id] = key
             errorByTarget[t.id] = nil
+            pausedByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .unchanged(message))
         } catch {
             liveByTarget[t.id] = nil
             errorByTarget[t.id] = (key, error.localizedDescription)
+            pausedByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .failed(error.localizedDescription))
         }
+    }
+
+    /// A pause supersedes any earlier error for the target: the last value is shown with a quiet note instead
+    private func pause(_ t: PollTarget, _ key: AccountKey, _ until: Date) {
+        errorByTarget[t.id] = nil
+        pausedByTarget[t.id] = (key, until)
     }
 
     /// Another account (same provider) whose next weekly reset the fetched windows share to the minute,
@@ -210,9 +225,12 @@ actor UsageEngine {
         let live = Set(liveByTarget.values)
         var errors: [AccountKey: String] = [:]
         for (key, msg) in errorByTarget.values { errors[key] = msg }
+        // A pause that has already expired disappears on its own rather than lingering until the next tick
+        var paused: [AccountKey: Date] = [:]
+        for (key, until) in pausedByTarget.values where until > now { paused[key] = until }
 
         var keys = config.map(\.key)
-        let extra = Set(log.latest.keys).union(errors.keys).subtracting(keys).sorted()
+        let extra = Set(log.latest.keys).union(errors.keys).union(paused.keys).subtracting(keys).sorted()
         keys += extra
 
         // Without a label, the panel header is the part before @, or the full address if it collides with another email
@@ -237,7 +255,8 @@ actor UsageEngine {
                                observedAt: batch?.observedAt,
                                source: batch?.source,
                                error: errors[key],
-                               windows: windows)
+                               windows: windows,
+                               pausedUntil: paused[key])
         }
     }
 }
@@ -251,6 +270,8 @@ struct AccountView: Identifiable, Hashable {
     let source: String?
     let error: String?
     let windows: [WindowEstimate]
+    /// Set while the gate is holding back after a 429: the windows above are the last value, shown with a quiet note
+    var pausedUntil: Date? = nil
 
     var id: String { key.id }
 

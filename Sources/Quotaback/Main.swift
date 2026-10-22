@@ -51,6 +51,7 @@ enum Main {
                 if let t = a.observedAt { print("  " + L10n.lastObservedShort(t.formatted()) + " (\(a.source ?? "-"))") }
                 for e in a.windows { print("  " + describe(e)) }
                 if let err = a.error { print("  error: \(err)") }
+                if let until = a.pausedUntil { print("  " + L10n.pausedUntil(until.formatted())) }
             }
             done.signal()
         }

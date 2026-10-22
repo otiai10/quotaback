@@ -294,9 +294,14 @@ struct AccountSection: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
+            } else if let until = account.pausedUntil {
+                Text(L10n.pausedUntil(until.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(L10n.locale))))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if expanded {
-                if let t = account.observedAt, !account.isLive {
+                if let t = account.observedAt, !account.isLive || account.pausedUntil != nil {
                     Text(observedText(t))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
