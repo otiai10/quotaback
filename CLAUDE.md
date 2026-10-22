@@ -39,10 +39,11 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - `ClaudeProvider.swift` `PollTarget` の生成（取得 → 生レスポンスを `last-response-<email>.json` に保存 → 解析）、`kind` → `Cadence`（`cadence(forKind:)`。session=rolling 5h、weekly*=fixed 7d、spend=monthly）。`cadence(forWindowKey:)` は保存済みのキーから引く版で、旧 `state.json` の取り込みでも使う
   - `Credentials.swift` `CredentialSource`、置き場所の自動検出、持ち主の判定（`.claude.json` の `oauthAccount.emailAddress`）、トークン読み取りとハッシュ
   - `UsageClient.swift` usage API 呼び出し（`fetch` は `Data` を返すだけでファイルは書かない）とレスポンス解析（`parse` が `[WindowObservation]` を直接返す）
+  - `UsageRequestGate.swift` 取得の入口（actor、状態は `usage-throttle.json`）。同じアカウントへは最短 60 秒間隔。429 を受けたら全 Claude アカウントの取得を止める（5 分から倍々で最大 30 分、サーバーの `Retry-After` が長ければそちら。実測では `Retry-After` が約 1 時間で返る）。ゲートが見送るときは `UsageError.deferred`（リクエストは送らない）、サーバーが 429 を返した瞬間は `UsageError.rateLimited`（`Retry-After` の値つき）。どちらもエンジンでは「休止」扱いで、パネルは前回の値を出したままログイン状態のドットを緑→橙にするだけ（文字は出さない。ツールチップに休止の終了時刻。展開時は未ログインと同じく「最終観測」の行を出す）で、エラー（赤字）にはしない。赤はトークン期限切れなど本物のエラーに取っておく。429 という文字は受けた時の `activity.log` の 1 行にだけ出る。2026-10-22 の観測：P が 429 の間に W のトークンでは 200 が返ったので、制限はアカウント単位。全体停止はその前提（IP 単位かもしれない）で入れたもので、アカウント単位に変えるかは未決
 - `Codex/` Codex 固有（API は呼ばない）
   - `CodexProvider.swift` `CodexHome`（`$CODEX_HOME` / `~/.codex`）。持ち主は `auth.json` の `id_token` の `email`。`last_refresh` より前の記録は使わない（`UsageError.noObservation`）
   - `CodexRolloutReader.swift` `sessions/YYYY/MM/DD/rollout-*.jsonl` を新しい順に末尾 1MB だけ読み、最新の `token_count` の `rate_limits` を取る。枠は `window_minutes` で区別（300=5h limit/rolling、10080=Weekly limit/fixed 7d）。`resets_at`（epoch）と旧形式の `resets_in_seconds` の両方に対応
-- `Core/UsageError.swift` 取得失敗の種類。`noObservation` は「持ち主は分かるが新しい観測なし」で、エラーを出さずにログイン中のまま前回値を下限で出す
+- `Core/UsageError.swift` 取得失敗の種類。`noObservation` は「持ち主は分かるが新しい観測なし」で、エラーを出さずにログイン中のまま前回値を下限で出す。`deferred` / `rateLimited` は上記ゲートの休止で、これもエラー扱いにしない（`AccountView.pausedUntil`）
 - `Models.swift` 設定（`~/.config/quotaback/config.json`）。`AccountConfig.provider` は省略時 "claude"
   - アカウントは `email`（識別子）と任意の `emoji`・`label`。メニューバーは emoji → label → メールの頭文字。パネルの見出しは emoji ＋（label、無ければメールの @ より前。別のメールと重なるときだけ全体）。旧キー `name` も `email` として読む（書くときは `email`）
   - 「観測できたアカウントは必ず config.json にある」状態を保つ。取得のたびに（`--once` も）、設定に無いアカウントを `email` だけで末尾に書き足す（`AppConfig.registerAccounts`）。書く直前にファイルを読み直して足すだけで、読めない（壊れている）ときは触らない。持ち主不明（"?" 始まり）は足さない

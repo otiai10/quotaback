@@ -75,13 +75,53 @@ final class UsageEngineTests: XCTestCase {
         let views = await e.accountViews(config: accounts, now: t0 + 20)
         XCTAssertTrue(views[0].isLive)
         XCTAssertEqual(views[0].observedAt, t0)
-        XCTAssertTrue(views[0].error?.contains("429") == true)
+        XCTAssertNil(views[0].error, "waiting is not an error")
+        XCTAssertEqual(views[0].pausedUntil, t0 + 300)
         f.owner = "w@example.com"
         await e.refresh([f.target], now: { t0 + 30 })
         let switched = await e.accountViews(config: accounts, now: t0 + 30)
         XCTAssertFalse(switched[0].isLive)
         XCTAssertFalse(switched[1].isLive)
         XCTAssertNil(switched[0].error)
+        XCTAssertNil(switched[0].pausedUntil, "the pause follows the target, not the previous owner")
+        XCTAssertEqual(switched[1].pausedUntil, t0 + 300, "the gate holds every account back, so W shows the pause too")
+    }
+
+    func testRateLimitIsShownAsPauseNotErrorAndExpiresOnItsOwn() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "p@example.com")
+        await e.refresh([f.target], now: { t0 })
+        f.error = UsageError.http(500, "boom")
+        await e.refresh([f.target], now: { t0 + 10 })
+        let errored = await e.accountViews(config: accounts, now: t0 + 10)[0]
+        XCTAssertNotNil(errored.error)
+
+        f.error = UsageError.rateLimited(until: t0 + 3600, retryAfter: "3600")
+        let reports = await e.refresh([f.target], now: { t0 + 20 })
+        guard case .unchanged(let message) = reports[0].outcome else { return XCTFail("a 429 is not a failure") }
+        XCTAssertTrue(message.contains("429") && message.contains("Retry-After: 3600"), message)
+        let paused = await e.accountViews(config: accounts, now: t0 + 20)[0]
+        XCTAssertNil(paused.error, "the pause supersedes the earlier error")
+        XCTAssertEqual(paused.pausedUntil, t0 + 3600)
+        XCTAssertEqual(paused.observedAt, t0, "the last value stays")
+
+        // The gate's own skips keep the pause but never mention 429
+        f.error = UsageError.deferred(t0 + 3600, rateLimited: true)
+        let skipped = await e.refresh([f.target], now: { t0 + 40 })
+        guard case .unchanged(let skip) = skipped[0].outcome else { return XCTFail() }
+        XCTAssertFalse(skip.contains("429"), skip)
+        let stillPaused = await e.accountViews(config: accounts, now: t0 + 40)[0]
+        XCTAssertEqual(stillPaused.pausedUntil, t0 + 3600)
+
+        // Past the pause and before the next fetch, the note is gone
+        let expired = await e.accountViews(config: accounts, now: t0 + 3601)[0]
+        XCTAssertNil(expired.pausedUntil)
+
+        f.error = nil
+        await e.refresh([f.target], now: { t0 + 3700 })
+        let back = await e.accountViews(config: accounts, now: t0 + 3700)[0]
+        XCTAssertNil(back.pausedUntil)
+        XCTAssertNil(back.error)
     }
 
     func testSwitchingLoginKeepsLastValueAsLowerBound() async throws {

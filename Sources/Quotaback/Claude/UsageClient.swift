@@ -19,7 +19,7 @@ enum UsageClient {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
         let retryAfter = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After")
         if let until = await UsageRequestGate.shared.received(status: code, retryAfter: retryAfter) {
-            throw UsageError.deferred(until, rateLimited: true)
+            throw UsageError.rateLimited(until: until, retryAfter: retryAfter)
         }
         guard code == 200 else {
             throw UsageError.http(code, String(data: data, encoding: .utf8) ?? "")
