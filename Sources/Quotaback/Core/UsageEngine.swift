@@ -7,7 +7,7 @@ actor UsageEngine {
     private var liveByTarget: [String: AccountKey] = [:]
     /// Target → the last failure (the owner at that time and the message)
     private var errorByTarget: [String: (AccountKey, String)] = [:]
-    /// Targets the gate is holding back after a 429 (shown as a quiet note with the last value, not as an error)
+    /// Targets the gate is holding back after a 429 (shown as an orange dot with the last value, not as an error)
     private var pausedByTarget: [String: (AccountKey, Date)] = [:]
     /// Credential hash → the account it was last assigned to (in memory only)
     private var fingerprintOwner: [String: AccountKey] = [:]
@@ -270,7 +270,7 @@ struct AccountView: Identifiable, Hashable {
     let source: String?
     let error: String?
     let windows: [WindowEstimate]
-    /// Set while the gate is holding back after a 429: the windows above are the last value, shown with a quiet note
+    /// Set while the gate is holding back after a 429: the windows above are the last value, the login dot turns orange
     var pausedUntil: Date? = nil
 
     var id: String { key.id }

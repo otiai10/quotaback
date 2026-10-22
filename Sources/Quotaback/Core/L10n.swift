@@ -114,9 +114,9 @@ enum L10n {
                  "HTTP 429（\(header)）。\(time) まで更新を休止します")
     }
 
-    /// Panel caption while paused: a quiet note, not an error
+    /// Tooltip on the orange dot (and the --once line) while paused: a state, not an error
     static func pausedUntil(_ time: String) -> String {
-        t("Updates paused until \(time) · showing the last value", "\(time) まで更新を休止中 · 前回の値を表示")
+        t("Updates paused until \(time)", "\(time) まで更新を休止中")
     }
 
     static func credentialsError(_ m: String) -> String { t("Can't read credentials: \(m)", "認証情報を読めません: \(m)") }
