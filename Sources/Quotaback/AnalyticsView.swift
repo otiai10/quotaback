@@ -100,44 +100,64 @@ struct AnalyticsCharts: View {
 
     // MARK: 1
 
+    /// All weeks, in fixed-width cells that scroll sideways. The row labels sit over the leading edge as a safe-area
+    /// inset, so the cells slide under them and the scroller only spans the cells. Opens at the newest week
     @ViewBuilder private var finalUsage: some View {
-        // The most recent weeks only, so that the cells keep a readable width
-        let all = AnalyticsModel.heatmap(input.cycles, now: input.now, titles: input.title)
-        let shown = Set(Set(all.map(\.week)).sorted().suffix(Self.heatmapWeeks))
-        let cells = all.filter { shown.contains($0.week) }
+        let cells = AnalyticsModel.heatmap(input.cycles, now: input.now, titles: input.title)
         if cells.isEmpty {
             empty()
         } else {
             let rows = cells.map(\.row).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
             let weeks = Set(cells.map(\.week)).sorted()
             let byID = Dictionary(cells.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
-            Grid(horizontalSpacing: 4, verticalSpacing: 4) {
-                GridRow {
-                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                    ForEach(weeks, id: \.self) { w in
-                        Text(Self.shortDay(w)).font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-                ForEach(rows, id: \.self) { row in
-                    GridRow {
-                        let first = cells.first { $0.row == row }
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(first?.account ?? row).font(.caption)
-                            Text(first?.window ?? "").font(.caption2).foregroundStyle(.secondary)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    Grid(horizontalSpacing: HeatLayout.gap, verticalSpacing: HeatLayout.gap) {
+                        GridRow {
+                            ForEach(weeks, id: \.self) { w in
+                                Text(Self.shortDay(w)).font(.caption2).foregroundStyle(.secondary)
+                                    .frame(width: HeatLayout.cellWidth, height: HeatLayout.headerHeight)
+                                    .id(w)
+                            }
                         }
-                        .lineLimit(1)
-                        .fixedSize()
-                        .gridColumnAlignment(.leading)
-                        ForEach(weeks, id: \.self) { w in
-                            HeatCellView(cell: byID["\(row) \(w.timeIntervalSince1970)"])
+                        ForEach(rows, id: \.self) { row in
+                            GridRow {
+                                ForEach(weeks, id: \.self) { w in
+                                    HeatCellView(cell: byID["\(row) \(w.timeIntervalSince1970)"])
+                                }
+                            }
                         }
                     }
                 }
+                .safeAreaInset(edge: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: HeatLayout.gap) {
+                        Color.clear.frame(width: 1, height: HeatLayout.headerHeight)
+                        ForEach(rows, id: \.self) { row in
+                            let first = cells.first { $0.row == row }
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(first?.account ?? row).font(.caption)
+                                Text(first?.window ?? "").font(.caption2).foregroundStyle(.secondary)
+                            }
+                            .lineLimit(1)
+                            .fixedSize()
+                            .frame(height: HeatLayout.rowHeight)
+                        }
+                    }
+                    .padding(.trailing, 10)
+                    // Translucent, so that the cells scrolled under the labels still show through
+                    .background(Color(nsColor: .windowBackgroundColor).opacity(HeatLayout.labelOpacity))
+                }
+                .onAppear { Self.scrollToNewest(proxy, weeks.last) }
+                .onChange(of: weeks.count) { _ in Self.scrollToNewest(proxy, weeks.last) }
             }
         }
     }
 
-    private static let heatmapWeeks = 8
+    private static func scrollToNewest(_ proxy: ScrollViewProxy, _ week: Date?) {
+        guard let week else { return }
+        // The layout isn't settled yet when onAppear fires, so wait a turn
+        Task { @MainActor in proxy.scrollTo(week, anchor: .trailing) }
+    }
 
     private static func shortDay(_ d: Date) -> String {
         d.formatted(Date.FormatStyle(date: .omitted, time: .omitted).month(.defaultDigits).day().locale(L10n.locale))
@@ -225,6 +245,15 @@ struct AnalyticsCharts: View {
 
 }
 
+/// The heatmap's fixed geometry. The label column and the grid share the row heights so that they line up
+private enum HeatLayout {
+    static let cellWidth: CGFloat = 56
+    static let rowHeight: CGFloat = 28
+    static let headerHeight: CGFloat = 14
+    static let gap: CGFloat = 4
+    static let labelOpacity = 0.82
+}
+
 /// One week of one window: darker for more of the limit used, outlined at 100%, striped when it's a lower bound,
 /// faint and empty when there's no data (a week before the window existed has no cell at all)
 private struct HeatCellView: View {
@@ -248,7 +277,7 @@ private struct HeatCellView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 28)
+        .frame(width: HeatLayout.cellWidth, height: HeatLayout.rowHeight)
     }
 }
 
