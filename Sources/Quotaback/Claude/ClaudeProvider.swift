@@ -5,7 +5,8 @@ struct ClaudeProvider: UsageProvider {
     static let id = "claude"
 
     func targets(config: AppConfig) -> [PollTarget] {
-        config.effectiveSources(discovered: CredentialSource.discover()).map { source in
+        let files = RawResponseFiles()
+        return config.effectiveSources(discovered: CredentialSource.discover()).map { source in
             PollTarget(
                 provider: Self.id,
                 id: source.id,
@@ -14,21 +15,20 @@ struct ClaudeProvider: UsageProvider {
                 ownerStamp: { source.ownerStamp() },
                 fetch: {
                     let token = try source.accessToken()
-                    let rawName = source.ownerEmail() ?? source.id
-                    let data = try await UsageClient.fetch(token: token, account: rawName)
-                    // Save before parsing: a response that fails to parse is exactly the one to look at
-                    Self.saveRawResponse(data, name: rawName)
-                    return FetchedUsage(windows: try UsageClient.parse(data),
-                                        credentialFingerprint: CredentialSource.fingerprint(token))
-                })
+                    let data = try await UsageClient.fetch(token: token, account: source.ownerEmail() ?? source.id)
+                    return try Self.received(data, token: token, files: files)
+                },
+                rawResponses: files)
         }
     }
 
-    /// Saves the raw response for debugging (the API is unofficial, so we can check when the format changes)
-    private static func saveRawResponse(_ data: Data, name: String) {
-        let safe = name.replacingOccurrences(of: "/", with: "_")
-        let url = AppConfig.directory.appendingPathComponent("last-response-\(safe).json")
-        try? data.write(to: url)
+    /// Keeps the response under a neutral name before parsing (a response that fails to parse is exactly
+    /// the one to look at), then parses it. The account-named copy waits until the engine records it
+    static func received(_ data: Data, token: String, files: RawResponseFiles) throws -> FetchedUsage {
+        files.saveUnverified(data)
+        return FetchedUsage(windows: try UsageClient.parse(data),
+                            credentialFingerprint: CredentialSource.fingerprint(token),
+                            raw: data)
     }
 
     /// Decides the reset cadence from a stored window key (`limits[].kind[/scope]`).
@@ -62,5 +62,28 @@ extension CredentialSource {
         guard let path = resolvedProfilePath,
               let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
         return attrs[.modificationDate] as? Date
+    }
+}
+
+/// Raw responses for debugging (the API is unofficial, so we can check when the format changes).
+/// `last-response-unverified.json` is the latest response of any owner, including ones that were skipped
+/// or failed to parse; `last-response-<email>.json` only holds responses recorded as that account's
+struct RawResponseFiles: RawResponseStore {
+    var directory = AppConfig.directory
+
+    func url(for name: String) -> URL {
+        directory.appendingPathComponent("last-response-\(name.replacingOccurrences(of: "/", with: "_")).json")
+    }
+
+    func saveUnverified(_ data: Data) {
+        try? data.write(to: url(for: "unverified"))
+    }
+
+    func confirm(_ data: Data, account: String) {
+        try? data.write(to: url(for: account))
+    }
+
+    func discard(account: String) {
+        try? FileManager.default.removeItem(at: url(for: account))
     }
 }

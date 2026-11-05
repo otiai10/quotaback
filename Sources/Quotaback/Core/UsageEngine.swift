@@ -108,6 +108,7 @@ actor UsageEngine {
                     // What was recorded for the previous owner with these credentials was actually this account's → retract it all
                     if let l = latestFingerprint[prev], l.fp == fp {
                         log.retract(of: prev, from: l.since)
+                        t.rawResponses?.discard(account: prev.account)
                         latestFingerprint[prev] = nil
                     }
                     conflicts[fp] = nil
@@ -119,6 +120,8 @@ actor UsageEngine {
             let batch = ObservationBatch(account: key, observedAt: observedAt, source: t.description,
                                          windows: fetched.windows)
             log.record(batch)
+            // Only now is it known whose response this is (an unknown owner gets no account-named copy)
+            if let raw = fetched.raw, !key.account.hasPrefix("?") { t.rawResponses?.confirm(raw, account: key.account) }
             liveByTarget[t.id] = key
             errorByTarget[t.id] = nil
             pausedByTarget[t.id] = nil

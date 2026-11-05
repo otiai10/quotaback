@@ -91,4 +91,17 @@ final class UsageClientTests: XCTestCase {
     func testParseRejectsNonObject() {
         XCTAssertThrowsError(try UsageClient.parse(Data("[]".utf8)))
     }
+
+    /// #31: a response is kept under the neutral name before parsing, so one that fails to parse is still there
+    func testUnparsableResponseIsKeptAsUnverified() throws {
+        let files = RawResponseFiles(directory: try tempDirectory())
+        let body = Data(#"{"five_hour":{"utilization":1}}"#.utf8)
+        XCTAssertThrowsError(try ClaudeProvider.received(body, token: "t", files: files))
+        XCTAssertEqual(try Data(contentsOf: files.url(for: "unverified")), body)
+
+        let ok = Data(#"{"limits":[]}"#.utf8)
+        let fetched = try ClaudeProvider.received(ok, token: "t", files: files)
+        XCTAssertEqual(fetched.raw, ok, "handed to the engine to save under the owner once recorded")
+        XCTAssertEqual(try Data(contentsOf: files.url(for: "unverified")), ok)
+    }
 }

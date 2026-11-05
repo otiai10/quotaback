@@ -11,6 +11,8 @@ final class FakeTarget: @unchecked Sendable {
     var asOf: Date?
     var ownerAfterFetch: String??   // Simulates the owner changing during a fetch
     var error: Error?
+    /// Where raw responses go (nil = not kept). The fake response names the token it came from
+    var files: RawResponseFiles?
 
     init(owner: String?) { self.owner = owner; self.stamp = t0 }
 
@@ -20,10 +22,13 @@ final class FakeTarget: @unchecked Sendable {
                    fetch: {
                        if let e = self.error { throw e }
                        if let o = self.ownerAfterFetch { self.owner = o }
+                       let raw = Data("\(self.token) \(self.percent)".utf8)
+                       self.files?.saveUnverified(raw)
                        return FetchedUsage(windows: [window(percent: self.percent, resetsAt: self.resetsAt)],
                                            credentialFingerprint: CredentialSource.fingerprint(self.token),
-                                           asOf: self.asOf)
-                   })
+                                           asOf: self.asOf, raw: raw)
+                   },
+                   rawResponses: files)
     }
 }
 
@@ -420,5 +425,70 @@ final class UsageEngineTests: XCTestCase {
         let later = await e.accountViews(config: accounts, now: t0 + 2 * day)[1]
         XCTAssertEqual(later.windows.first?.value, .reset)
         XCTAssertEqual(later.windows.first?.nextReset, .projected(t0 + 8 * day))
+    }
+
+    // MARK: - Raw responses (#31)
+
+    func rawText(_ files: RawResponseFiles, _ name: String) -> String? {
+        (try? Data(contentsOf: files.url(for: name))).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// A response skipped as another account's never lands in the logged-in account's file, only in the unverified one
+    func testSkippedResponseIsNotSavedUnderOwner() async throws {
+        let e = try engine()
+        let files = RawResponseFiles(directory: try tempDirectory())
+        let f = FakeTarget(owner: "p@example.com")
+        f.files = files
+        let pReset = t0 + day, wReset = t0 + day + 6 * hour
+        f.token = "token-p"; f.resetsAt = pReset; f.percent = 60
+        await e.refresh([f.target], now: { t0 })
+        f.owner = "w@example.com"; f.token = "token-w"; f.resetsAt = wReset; f.percent = 25
+        await e.refresh([f.target], now: { t0 + hour })
+        XCTAssertEqual(rawText(files, "w@example.com"), "token-w 25.0")
+
+        // P's refreshed token while .claude.json says W → skipped
+        f.token = "token-p-new"; f.resetsAt = pReset; f.percent = 61
+        let r = await e.refresh([f.target], now: { t0 + 2 * hour })
+        guard case .skipped = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+        XCTAssertEqual(rawText(files, "w@example.com"), "token-w 25.0", "W's file keeps W's own response")
+        XCTAssertEqual(rawText(files, "p@example.com"), "token-p 60.0", "nor is it guessed to be P's")
+        XCTAssertEqual(rawText(files, "unverified"), "token-p-new 61.0", "the skipped response is still kept for debugging")
+    }
+
+    /// A recorded response replaces the account's file; with no known owner there is no account-named copy
+    func testRecordedResponseIsSavedUnderOwnerOnly() async throws {
+        let e = try engine()
+        let dir = try tempDirectory()
+        let files = RawResponseFiles(directory: dir)
+        let f = FakeTarget(owner: "p@example.com")
+        f.files = files
+        await e.refresh([f.target], now: { t0 })
+        f.percent = 12
+        await e.refresh([f.target], now: { t0 + 600 })
+        XCTAssertEqual(rawText(files, "p@example.com"), "token-a 12.0")
+
+        f.owner = nil; f.token = "token-x"
+        let r = await e.refresh([f.target], now: { t0 + 1200 })
+        guard case .recorded = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
+        XCTAssertEqual(names, ["last-response-p@example.com.json", "last-response-unverified.json"])
+    }
+
+    /// When a mix-up settles and the previous owner's records are retracted, its raw response goes too
+    func testRetractedOwnerLosesRawResponse() async throws {
+        let e = try engine()
+        let files = RawResponseFiles(directory: try tempDirectory())
+        let f = FakeTarget(owner: "w@example.com")
+        f.files = files
+        await e.refresh([f.target], now: { t0 })
+        f.token = "token-p"; f.percent = 15
+        await e.refresh([f.target], now: { t0 + 300 })
+        XCTAssertEqual(rawText(files, "w@example.com"), "token-p 15.0", "not yet known to be a mix-up")
+        f.owner = "p@example.com"
+        await e.refresh([f.target], now: { t0 + 310 })
+        let settled = await e.refresh([f.target], now: { t0 + 310 + UsageEngine.conflictSettle })
+        guard case .recorded = settled[0].outcome else { return XCTFail("\(settled[0].outcome)") }
+        XCTAssertNil(rawText(files, "w@example.com"))
+        XCTAssertEqual(rawText(files, "p@example.com"), "token-p 15.0")
     }
 }
