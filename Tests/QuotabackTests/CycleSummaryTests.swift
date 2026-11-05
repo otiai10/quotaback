@@ -140,6 +140,29 @@ final class CycleSummaryTests: XCTestCase {
         XCTAssertEqual(ObservationLog.load(directory: dir, now: r1 + 3 * hour).cycles, reloaded.cycles)
     }
 
+    /// Retracting a mix-up leaves no summary of the cycle it created, and keeps the earlier correct ones
+    func testRetractRemovesSummaryOfMixedUpCycle() throws {
+        let dir = try tempDirectory()
+        var log = ObservationLog.load(directory: dir, now: t0)
+        let mine = t0 + day, theirs = t0 + 3 * day
+        log.record(batch(w, at: t0, [window(percent: 30, resetsAt: mine)]))
+        log.record(batch(w, at: t0 + hour, [window(percent: 35, resetsAt: mine)]))
+        // P's reset time recorded under W (a mix-up), then P's reset passes
+        let from = t0 + 2 * hour
+        log.record(batch(w, at: from, [window(percent: 70, resetsAt: theirs)]))
+        log.record(batch(w, at: from + hour, [window(percent: 72, resetsAt: theirs)]))
+        log.summarizeClosedCycles(now: theirs + hour)
+        XCTAssertEqual(log.cycles.map(\.resetsAt), [mine, theirs], "the mixed-up cycle is summarized")
+
+        log.retract(of: w, from: from, now: theirs + hour)
+
+        XCTAssertEqual(log.cycles.map(\.resetsAt), [mine], "only the correct earlier cycle remains")
+        XCTAssertEqual(log.cycles.first?.finalPercent, 35)
+        XCTAssertEqual(try fileLines(log), 1)
+        let reloaded = ObservationLog.load(directory: dir, now: theirs + 2 * hour)
+        XCTAssertEqual(reloaded.cycles.map(\.resetsAt), [mine], "persisted, and not regenerated on load")
+    }
+
     /// AC-7: summaries aren't pruned with the raw log, and a cycle is summarized before its observations are pruned
     func testSummariesOutliveRetention() throws {
         let dir = try tempDirectory()
