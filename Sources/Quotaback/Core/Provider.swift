@@ -27,6 +27,9 @@ struct PollTarget: @unchecked Sendable {
     let fetch: @Sendable () async throws -> FetchedUsage
     /// Where the raw response goes once the engine knows whose it is (nil = not kept)
     var rawResponses: RawResponseStore? = nil
+    /// Hash of the credentials a fetch would send now, read without a request (nil = can't tell).
+    /// Lets the engine hold back a skip that can't change until the credentials do
+    var credentialFingerprint: (@Sendable () -> String?)? = nil
 }
 
 /// Keeps raw responses for debugging under the account they were recorded for.

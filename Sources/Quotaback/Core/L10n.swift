@@ -151,6 +151,10 @@ enum L10n {
         t("the weekly reset time matches \(account)'s, not this account's (the credentials may still be \(account)'s)",
           "週次枠のリセット時刻がこのアカウントではなく \(account) と同じ（認証情報が \(account) のままの可能性）")
     }
+    static func resetMatchesOtherNotSent(_ account: String) -> String {
+        t("not sent: same credentials and owner as the last skip (\(resetMatchesOther(account)))",
+          "送信せず: 前回見送ったときと認証情報も持ち主も同じ（\(resetMatchesOther(account))）")
+    }
 
     // MARK: --once
 

@@ -16,6 +16,9 @@ actor UsageEngine {
     /// Account → hash of the credentials its latest batch came from, and when that hash was first recorded
     /// for it (to retract the whole run of a mix-up)
     private var latestFingerprint: [AccountKey: (fp: String, since: Date)] = [:]
+    /// Target → a skip because the reset time is another account's: the credentials sent and the owner then.
+    /// Until either changes the answer can't change, so no request is sent (#32). Memory only
+    private var standingSkip: [String: (fp: String, owner: String?, other: AccountKey)] = [:]
 
     /// How long a conflict must persist before it counts as a real owner change.
     /// Whichever of the owner info and the credentials `/login` writes first, both should be in place by then
@@ -76,8 +79,15 @@ actor UsageEngine {
         knownOwner[t.id] = before
         let key = AccountKey(provider: t.provider, account: before ?? "?\(t.description)")
 
+        // Kept across gate pauses; replaced by whatever the next real fetch says
+        if let s = standingSkip[t.id], s.owner == before, let fp = t.credentialFingerprint?(), fp == s.fp {
+            liveByTarget[t.id] = nil
+            return Report(target: t, owner: before, outcome: .skipped(L10n.resetMatchesOtherNotSent(s.other.account)))
+        }
+
         do {
             let fetched = try await t.fetch()
+            standingSkip[t.id] = nil
 
             // Avoid mix-ups during a login switch (the owner info and the credentials are updated separately)
             let after = t.owner()
@@ -93,6 +103,7 @@ actor UsageEngine {
                 // another account's rather than this one's, they are probably still that account's. Not tied on skip
                 if fingerprintOwner[fp] == nil, let other = foreignCycleOwner(fetched.windows, for: key, now: at) {
                     liveByTarget[t.id] = nil
+                    standingSkip[t.id] = (fp, before, other)
                     return Report(target: t, owner: before, outcome: .skipped(L10n.resetMatchesOther(other.account)))
                 }
                 if let prev = fingerprintOwner[fp], prev != key {
@@ -144,6 +155,7 @@ actor UsageEngine {
             pausedByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .unchanged(message))
         } catch {
+            standingSkip[t.id] = nil
             liveByTarget[t.id] = nil
             errorByTarget[t.id] = (key, error.localizedDescription)
             pausedByTarget[t.id] = nil
@@ -187,6 +199,7 @@ actor UsageEngine {
             defer { knownOwner[t.id] = owner }
             guard let known = knownOwner[t.id] else { return true }
             if known != owner {
+                standingSkip[t.id] = nil
                 ActivityLog.write("switch \(t.description) \(known ?? "?") → \(owner ?? "?")")
                 return true
             }

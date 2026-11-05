@@ -13,6 +13,9 @@ final class FakeTarget: @unchecked Sendable {
     var error: Error?
     /// Where raw responses go (nil = not kept). The fake response names the token it came from
     var files: RawResponseFiles?
+    /// How many times a request was sent, and whether the credentials can be read before one
+    var fetchCount = 0
+    var fingerprintReadable = true
 
     init(owner: String?) { self.owner = owner; self.stamp = t0 }
 
@@ -20,6 +23,7 @@ final class FakeTarget: @unchecked Sendable {
         PollTarget(provider: "claude", id: "fake", description: "Fake",
                    owner: { self.owner }, ownerStamp: { self.stamp },
                    fetch: {
+                       self.fetchCount += 1
                        if let e = self.error { throw e }
                        if let o = self.ownerAfterFetch { self.owner = o }
                        let raw = Data("\(self.token) \(self.percent)".utf8)
@@ -28,7 +32,8 @@ final class FakeTarget: @unchecked Sendable {
                                            credentialFingerprint: CredentialSource.fingerprint(self.token),
                                            asOf: self.asOf, raw: raw)
                    },
-                   rawResponses: files)
+                   rawResponses: files,
+                   credentialFingerprint: { self.fingerprintReadable ? CredentialSource.fingerprint(self.token) : nil })
     }
 }
 
@@ -490,5 +495,102 @@ final class UsageEngineTests: XCTestCase {
         guard case .recorded = settled[0].outcome else { return XCTFail("\(settled[0].outcome)") }
         XCTAssertNil(rawText(files, "w@example.com"))
         XCTAssertEqual(rawText(files, "p@example.com"), "token-p 15.0")
+    }
+
+    // MARK: - Standing skips (#32)
+
+    /// W is logged in per .claude.json but the token is P's (P's reset time): skipped once, after which nothing is sent
+    func skippedAsP(_ e: UsageEngine) async throws -> FakeTarget {
+        let f = FakeTarget(owner: "p@example.com")
+        let pReset = t0 + day, wReset = t0 + day + 6 * hour
+        f.token = "token-p"; f.resetsAt = pReset
+        await e.refresh([f.target], now: { t0 })
+        f.owner = "w@example.com"; f.token = "token-w"; f.resetsAt = wReset
+        await e.refresh([f.target], now: { t0 + hour })
+        f.token = "token-p-new"; f.resetsAt = pReset
+        let r = await e.refresh([f.target], now: { t0 + 2 * hour })
+        guard case .skipped = r[0].outcome else {
+            XCTFail("setup did not reach the skip: \(r[0].outcome)")
+            throw CancellationError()
+        }
+        f.fetchCount = 0
+        return f
+    }
+
+    func testStandingSkipSendsNothingUntilSomethingChanges() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        for dt in [2 * hour + 5, 2 * hour + 35, 2 * hour + 300, 5 * hour] {
+            let r = await e.refresh([f.target], reason: "timer", now: { t0 + dt })
+            guard case .skipped(let m) = r[0].outcome else { return XCTFail("\(dt): \(r[0].outcome)") }
+            XCTAssertTrue(m.contains("p@example.com"), m)
+        }
+        XCTAssertEqual(f.fetchCount, 0, "no request while the token and the owner stay the same")
+        // Claude Code rewriting .claude.json without switching the login doesn't count as a change
+        f.stamp = t0 + 6 * hour
+        _ = await e.changedTargets([f.target])
+        await e.refresh([f.target], now: { t0 + 6 * hour })
+        XCTAssertEqual(f.fetchCount, 0, "an mtime-only change sends nothing")
+        let views = await e.accountViews(config: accounts, now: t0 + 6 * hour)
+        XCTAssertFalse(views[1].isLive)
+        XCTAssertEqual(views[1].observedAt, t0 + hour, "W keeps its own last observation")
+
+        ActivityLog.flush()
+        let text = try String(contentsOf: ActivityLog.url, encoding: .utf8)
+        XCTAssertTrue(text.contains("refresh(timer) Fake owner=w@example.com → skipped: not sent"), text)
+    }
+
+    func testStandingSkipEndsWhenTokenChanges() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        f.token = "token-w-new"; f.resetsAt = t0 + day + 6 * hour
+        let r = await e.refresh([f.target], now: { t0 + 3 * hour })
+        XCTAssertEqual(f.fetchCount, 1)
+        guard case .recorded = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+    }
+
+    func testStandingSkipEndsWhenOwnerChanges() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        f.owner = "p@example.com"; f.stamp = t0 + 3 * hour
+        let r = await e.refresh([f.target], now: { t0 + 3 * hour })
+        XCTAssertEqual(f.fetchCount, 1)
+        guard case .recorded = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+    }
+
+    /// Switching away and back (seen by the switch check) forgets the skip, so the pair is checked again once
+    func testStandingSkipEndsWhenSwitchIsDetected() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        f.owner = "p@example.com"; f.stamp = t0 + 3 * hour
+        _ = await e.changedTargets([f.target])
+        f.owner = "w@example.com"; f.stamp = t0 + 3 * hour + 10
+        _ = await e.changedTargets([f.target])
+        await e.refresh([f.target], now: { t0 + 3 * hour + 20 })
+        XCTAssertEqual(f.fetchCount, 1)
+    }
+
+    func testStandingSkipFetchesWhenCredentialsCantBeRead() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        f.fingerprintReadable = false
+        let r = await e.refresh([f.target], now: { t0 + 3 * hour })
+        XCTAssertEqual(f.fetchCount, 1, "falls back to fetching as before")
+        guard case .skipped(let m) = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+        XCTAssertFalse(m.contains("not sent"), m)
+    }
+
+    /// A gate pause in between doesn't forget the skip (no wasted request right after a 429 pause)
+    func testStandingSkipSurvivesGatePause() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        f.fingerprintReadable = false
+        f.error = UsageError.deferred(t0 + 4 * hour, rateLimited: true)
+        await e.refresh([f.target], now: { t0 + 3 * hour })
+        XCTAssertEqual(f.fetchCount, 1)
+        // Readable again with the same token and owner: still nothing sent
+        f.fingerprintReadable = true; f.error = nil
+        await e.refresh([f.target], now: { t0 + 5 * hour })
+        XCTAssertEqual(f.fetchCount, 1)
     }
 }
