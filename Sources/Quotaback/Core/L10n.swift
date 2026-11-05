@@ -119,6 +119,12 @@ enum L10n {
         t("Updates paused until \(time)", "\(time) まで更新を休止中")
     }
 
+    /// Tooltip on the violet ring while the credentials seem to be another account's (#29)
+    static func credentialsOf(_ other: String) -> String {
+        t("Logged in, but the credentials still seem to be \(other)'s, so fetching is stopped. Run /login again in Claude Code to fix it",
+          "ログイン中ですが、認証情報がまだ \(other) のもののようなので取得を止めています。Claude Code で /login し直すと直ります")
+    }
+
     static func credentialsError(_ m: String) -> String { t("Can't read credentials: \(m)", "認証情報を読めません: \(m)") }
     static var tokenExpired: String {
         t("Token expired (run claude once with this account to refresh it)",

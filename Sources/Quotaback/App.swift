@@ -356,15 +356,19 @@ struct AccountSection: View {
     }
 
     /// The provider's logo (or its name when there is none) with the login state: a green dot and a solid logo
-    /// when logged in, a faded logo otherwise. While updates are paused after a 429 the dot is orange instead
-    /// (no text in the panel). The words, and the pause's end time, are in the tooltip
+    /// when logged in, a faded logo otherwise. While updates are paused after a 429 the dot is orange instead,
+    /// and while the credentials seem to be another account's it is a violet ring (no text in the panel either way).
+    /// The words, the pause's end time and the fix are in the tooltip
     private var loginMark: some View {
-        var state = account.isLive ? L10n.loggedIn : L10n.notLoggedIn
+        var state = account.credentialsOf.map(L10n.credentialsOf) ?? (account.isLive ? L10n.loggedIn : L10n.notLoggedIn)
         if let until = account.pausedUntil {
             state += " · " + L10n.pausedUntil(until.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(L10n.locale)))
         }
         return HStack(spacing: 4) {
-            if account.pausedUntil != nil {
+            if account.credentialsOf != nil {
+                // Needs the user's action (/login), so it wins over the pause, which ends on its own
+                Circle().strokeBorder(Color.purple, lineWidth: 1.5).frame(width: 6, height: 6)
+            } else if account.pausedUntil != nil {
                 Circle().fill(Color.orange).frame(width: 6, height: 6)
             } else if account.isLive {
                 Circle().fill(Color.green).frame(width: 6, height: 6)

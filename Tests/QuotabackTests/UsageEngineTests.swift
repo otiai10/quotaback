@@ -593,4 +593,75 @@ final class UsageEngineTests: XCTestCase {
         await e.refresh([f.target], now: { t0 + 5 * hour })
         XCTAssertEqual(f.fetchCount, 1)
     }
+
+    // MARK: - Credential mismatch mark (#29)
+
+    func testMismatchSkipShowsWhoseCredentialsTheyAre() async throws {
+        let e = try engine()
+        _ = try await skippedAsP(e)
+        let views = await e.accountViews(config: accounts, now: t0 + 2 * hour)
+        XCTAssertFalse(views[1].isLive)
+        XCTAssertEqual(views[1].credentialsOf, "P", "W is marked with the account the credentials seem to belong to")
+        XCTAssertNil(views[0].credentialsOf)
+    }
+
+    func testMismatchStaysWhileStandingSkipAndGatePause() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        await e.refresh([f.target], now: { t0 + 3 * hour })
+        var views = await e.accountViews(config: accounts, now: t0 + 3 * hour)
+        XCTAssertEqual(views[1].credentialsOf, "P", "a skip without a request keeps the mark")
+        f.fingerprintReadable = false
+        f.error = UsageError.deferred(t0 + 5 * hour, rateLimited: true)
+        await e.refresh([f.target], now: { t0 + 4 * hour })
+        views = await e.accountViews(config: accounts, now: t0 + 4 * hour)
+        XCTAssertEqual(views[1].credentialsOf, "P", "a pause for the same owner keeps the mark")
+        XCTAssertEqual(views[1].pausedUntil, t0 + 5 * hour)
+    }
+
+    func testMismatchClearsWhenRecorded() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        f.token = "token-w-new"; f.resetsAt = t0 + day + 6 * hour
+        await e.refresh([f.target], now: { t0 + 3 * hour })
+        let views = await e.accountViews(config: accounts, now: t0 + 3 * hour)
+        XCTAssertTrue(views[1].isLive)
+        XCTAssertNil(views[1].credentialsOf)
+    }
+
+    func testMismatchClearsWhenSwitchIsDetected() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        f.owner = "p@example.com"; f.stamp = t0 + 3 * hour
+        _ = await e.changedTargets([f.target])
+        let views = await e.accountViews(config: accounts, now: t0 + 3 * hour)
+        XCTAssertNil(views[1].credentialsOf)
+        XCTAssertNil(views[0].credentialsOf)
+    }
+
+    func testMismatchClearsOnRealError() async throws {
+        let e = try engine()
+        let f = try await skippedAsP(e)
+        f.fingerprintReadable = false
+        f.error = UsageError.tokenExpired
+        await e.refresh([f.target], now: { t0 + 3 * hour })
+        let views = await e.accountViews(config: accounts, now: t0 + 3 * hour)
+        XCTAssertNil(views[1].credentialsOf, "an expired token is an error, shown as one")
+        XCTAssertNotNil(views[1].error)
+    }
+
+    /// The same credentials claiming a new owner (mid-switch) is a mismatch too, until it settles
+    func testTokenOfPreviousOwnerIsMarked() async throws {
+        let e = try engine()
+        let f = FakeTarget(owner: "w@example.com")
+        await e.refresh([f.target], now: { t0 })
+        f.owner = "p@example.com"
+        await e.refresh([f.target], now: { t0 + 10 })
+        var views = await e.accountViews(config: accounts, now: t0 + 10)
+        XCTAssertEqual(views[0].credentialsOf, "W")
+        await e.refresh([f.target], now: { t0 + 10 + UsageEngine.conflictSettle })
+        views = await e.accountViews(config: accounts, now: t0 + 10 + UsageEngine.conflictSettle)
+        XCTAssertNil(views[0].credentialsOf, "once settled, P is accepted")
+        XCTAssertTrue(views[0].isLive)
+    }
 }

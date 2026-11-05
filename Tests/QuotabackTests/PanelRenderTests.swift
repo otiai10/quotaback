@@ -73,6 +73,28 @@ final class PanelRenderTests: XCTestCase {
         try png.write(to: dir.appendingPathComponent("\(name).png"))
     }
 
+    /// Work logged in but its credentials are still personal's (#29): a violet ring, no text. Not used in the README
+    func testRendersCredentialMismatch() throws {
+        L10n.apply("ja")
+        let now = Date()
+        let w = AccountView(
+            key: AccountKey(provider: "claude", account: "w@example.com"), label: "⭐️", title: "⭐️ work",
+            isLive: false, observedAt: now - day, source: nil, error: nil,
+            windows: [WindowEstimate(window: WindowObservation(key: "weekly_all", title: "Current week (all models)", percent: 1,
+                                                               resetsAt: now + 5 * day, isLimit: true, detail: nil, cadence: .fixed(7 * day)),
+                                     value: .atLeast(1), nextReset: .known(now + 5 * day), observedAt: now - day, limitETA: nil)],
+            credentialsOf: "🏈 personal")
+        let view = AccountSection(account: w, expanded: .constant(true))
+            .padding(14).frame(width: 340).background(Color(white: 0.93))
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        let rep = try XCTUnwrap(image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        try png.write(to: tempDirectory().appendingPathComponent("panel-mismatch.png"))
+        XCTAssertTrue(L10n.credentialsOf("🏈 personal").contains("/login"))
+    }
+
     func testRendersPanel() throws {
         try render("panel-light", language: "en", scheme: .light)
         try render("panel-dark", language: "en", scheme: .dark)
