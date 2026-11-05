@@ -25,6 +25,17 @@ struct PollTarget: @unchecked Sendable {
     /// Modification time of the owner source. Used to detect login switches (owner is re-read when it changes)
     let ownerStamp: @Sendable () -> Date?
     let fetch: @Sendable () async throws -> FetchedUsage
+    /// Where the raw response goes once the engine knows whose it is (nil = not kept)
+    var rawResponses: RawResponseStore? = nil
+}
+
+/// Keeps raw responses for debugging under the account they were recorded for.
+/// The provider owns the file names; the engine decides the account
+protocol RawResponseStore: Sendable {
+    /// The response was recorded as `account`'s
+    func confirm(_ data: Data, account: String)
+    /// What was recorded as `account`'s turned out to be another account's
+    func discard(account: String)
 }
 
 struct FetchedUsage {
@@ -34,4 +45,6 @@ struct FetchedUsage {
     /// When the values are from. nil if just fetched from the API (= fetch time).
     /// For past values read from logs etc., the time they were recorded
     var asOf: Date? = nil
+    /// The response as received, handed to `PollTarget.rawResponses` only after it is recorded
+    var raw: Data? = nil
 }

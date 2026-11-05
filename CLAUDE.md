@@ -36,7 +36,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
   - `UsageEngine.swift` actor。観測→記録、ログイン切り替え検知、取り違え防止、表示用 `AccountView` の生成。UI と `--once` の両方がこれを使う
   - `Provider.swift` `UsageProvider` プロトコルと `PollTarget`（owner / ownerStamp / fetch のクロージャ）
 - `Claude/` Claude 固有
-  - `ClaudeProvider.swift` `PollTarget` の生成（取得 → 生レスポンスを `last-response-<email>.json` に保存 → 解析）、`kind` → `Cadence`（`cadence(forKind:)`。session=rolling 5h、weekly*=fixed 7d、spend=monthly）。`cadence(forWindowKey:)` は保存済みのキーから引く版で、旧 `state.json` の取り込みでも使う
+  - `ClaudeProvider.swift` `PollTarget` の生成（取得 → 生レスポンスを `last-response-unverified.json` に保存 → 解析。`last-response-<email>.json` はエンジンが記録した後にだけ `RawResponseFiles.confirm` で書き、取り違えで記録を取り消したら消す。#31）、`kind` → `Cadence`（`cadence(forKind:)`。session=rolling 5h、weekly*=fixed 7d、spend=monthly）。`cadence(forWindowKey:)` は保存済みのキーから引く版で、旧 `state.json` の取り込みでも使う
   - `Credentials.swift` `CredentialSource`、置き場所の自動検出、持ち主の判定（`.claude.json` の `oauthAccount.emailAddress`）、トークン読み取りとハッシュ
   - `UsageClient.swift` usage API 呼び出し（`fetch` は `Data` を返すだけでファイルは書かない）とレスポンス解析（`parse` が `[WindowObservation]` を直接返す）
   - `UsageRequestGate.swift` 取得の入口（actor、状態は `usage-throttle.json`）。同じアカウントへは最短 60 秒間隔。429 を受けたら全 Claude アカウントの取得を止める（5 分から倍々で最大 30 分、サーバーの `Retry-After` が長ければそちら。実測では `Retry-After` が約 1 時間で返る）。ゲートが見送るときは `UsageError.deferred`（リクエストは送らない）、サーバーが 429 を返した瞬間は `UsageError.rateLimited`（`Retry-After` の値つき）。どちらもエンジンでは「休止」扱いで、パネルは前回の値を出したままログイン状態のドットを緑→橙にするだけ（文字は出さない。ツールチップに休止の終了時刻。展開時は未ログインと同じく「最終観測」の行を出す）で、エラー（赤字）にはしない。赤はトークン期限切れなど本物のエラーに取っておく。429 という文字は受けた時の `activity.log` の 1 行にだけ出る。2026-10-22 の観測：P が 429 の間に W のトークンでは 200 が返ったので、制限はアカウント単位。全体停止はその前提（IP 単位かもしれない）で入れたもので、アカウント単位に変えるかは未決
@@ -110,7 +110,7 @@ Claude Code の `/usage` に出る「利用上限の消費率」を、**2つの�
 ## 既知の小さな問題
 - ログイン中のアカウントで、リセット時刻を過ぎてから次の取得までの間は「ログイン中」なのに「リセット済み」と出る
 - `--once` の記録は、起動中のアプリが自分の保存で上書きすることがある
-- 実レスポンスは `~/.config/quotaback/last-response-<email>.json` に保存される。形式が変わったらこれを見て `UsageClient.parse` を直す
+- 実レスポンスは `~/.config/quotaback/last-response-<email>.json`（そのアカウントとして記録したものだけ）と `last-response-unverified.json`（持ち主を問わず最新の1件。見送ったもの・解析できなかったものも入る）に保存される。形式が変わったらこれを見て `UsageClient.parse` を直す
 
 ## 設計上の決定（変えるならユーザーに確認）
 - **トークンのリフレッシュをしない。** refresh token がローテーションされると Claude Code 側のログインが壊れる恐れがあるため、読み取り専用。期限切れはエラー表示し、ユーザーがそのアカウントで `claude` を起動して更新する
