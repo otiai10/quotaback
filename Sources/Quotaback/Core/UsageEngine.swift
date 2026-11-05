@@ -19,6 +19,9 @@ actor UsageEngine {
     /// Target → a skip because the reset time is another account's: the credentials sent and the owner then.
     /// Until either changes the answer can't change, so no request is sent (#32). Memory only
     private var standingSkip: [String: (fp: String, owner: String?, other: AccountKey)] = [:]
+    /// Target → skipped because the credentials seem to be another account's: the owner then and that account.
+    /// Shown as a violet ring on the login mark (#29), not as "not logged in"
+    private var mismatchByTarget: [String: (owner: AccountKey, other: AccountKey)] = [:]
 
     /// How long a conflict must persist before it counts as a real owner change.
     /// Whichever of the owner info and the credentials `/login` writes first, both should be in place by then
@@ -82,6 +85,7 @@ actor UsageEngine {
         // Kept across gate pauses; replaced by whatever the next real fetch says
         if let s = standingSkip[t.id], s.owner == before, let fp = t.credentialFingerprint?(), fp == s.fp {
             liveByTarget[t.id] = nil
+            mismatchByTarget[t.id] = (key, s.other)
             return Report(target: t, owner: before, outcome: .skipped(L10n.resetMatchesOtherNotSent(s.other.account)))
         }
 
@@ -94,6 +98,7 @@ actor UsageEngine {
             guard after == before else {
                 knownOwner[t.id] = after
                 liveByTarget[t.id] = nil
+                mismatchByTarget[t.id] = nil
                 return Report(target: t, owner: before, outcome: .skipped(L10n.ownerChanged(before ?? "?", after ?? "?")))
             }
             let at = now()
@@ -104,6 +109,7 @@ actor UsageEngine {
                 if fingerprintOwner[fp] == nil, let other = foreignCycleOwner(fetched.windows, for: key, now: at) {
                     liveByTarget[t.id] = nil
                     standingSkip[t.id] = (fp, before, other)
+                    mismatchByTarget[t.id] = (key, other)
                     return Report(target: t, owner: before, outcome: .skipped(L10n.resetMatchesOther(other.account)))
                 }
                 if let prev = fingerprintOwner[fp], prev != key {
@@ -113,6 +119,7 @@ actor UsageEngine {
                           at.timeIntervalSince(c.since) >= Self.conflictSettle else {
                         if conflicts[fp]?.owner != key { conflicts[fp] = (key, at) }
                         liveByTarget[t.id] = nil
+                        mismatchByTarget[t.id] = (key, prev)
                         return Report(target: t, owner: before,
                                       outcome: .skipped(L10n.tokenBelongsTo(prev.account)))
                     }
@@ -136,16 +143,19 @@ actor UsageEngine {
             liveByTarget[t.id] = key
             errorByTarget[t.id] = nil
             pausedByTarget[t.id] = nil
+            mismatchByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .recorded(batch))
         } catch UsageError.deferred(let until, let limited) {
             // Waiting is not an auth failure: the state is kept only while the confirmed owner is the same
             if liveByTarget[t.id] != key { liveByTarget[t.id] = nil }
             if errorByTarget[t.id]?.0 != key { errorByTarget[t.id] = nil }
+            if mismatchByTarget[t.id]?.owner != key { mismatchByTarget[t.id] = nil }
             if limited { pause(t, key, until) }
             return Report(target: t, owner: before, outcome: .unchanged(L10n.usageDeferred(until, rateLimited: limited)))
         } catch UsageError.rateLimited(let until, let retryAfter) {
             // The server said 429. Logged once here; the panel just shows the pause with the last value
             if liveByTarget[t.id] != key { liveByTarget[t.id] = nil }
+            if mismatchByTarget[t.id]?.owner != key { mismatchByTarget[t.id] = nil }
             pause(t, key, until)
             return Report(target: t, owner: before, outcome: .unchanged(L10n.rateLimited(until, retryAfter: retryAfter)))
         } catch UsageError.noObservation(let message) {
@@ -153,10 +163,12 @@ actor UsageEngine {
             liveByTarget[t.id] = key
             errorByTarget[t.id] = nil
             pausedByTarget[t.id] = nil
+            mismatchByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .unchanged(message))
         } catch {
             standingSkip[t.id] = nil
             liveByTarget[t.id] = nil
+            mismatchByTarget[t.id] = nil
             errorByTarget[t.id] = (key, error.localizedDescription)
             pausedByTarget[t.id] = nil
             return Report(target: t, owner: before, outcome: .failed(error.localizedDescription))
@@ -200,6 +212,7 @@ actor UsageEngine {
             guard let known = knownOwner[t.id] else { return true }
             if known != owner {
                 standingSkip[t.id] = nil
+                mismatchByTarget[t.id] = nil
                 ActivityLog.write("switch \(t.description) \(known ?? "?") → \(owner ?? "?")")
                 return true
             }
@@ -244,6 +257,8 @@ actor UsageEngine {
         // A pause that has already expired disappears on its own rather than lingering until the next tick
         var paused: [AccountKey: Date] = [:]
         for (key, until) in pausedByTarget.values where until > now { paused[key] = until }
+        var mismatch: [AccountKey: AccountKey] = [:]
+        for (key, other) in mismatchByTarget.values { mismatch[key] = other }
 
         var keys = config.map(\.key)
         let extra = Set(log.latest.keys).union(errors.keys).union(paused.keys).subtracting(keys).sorted()
@@ -252,10 +267,15 @@ actor UsageEngine {
         // Without a label, the panel header is the part before @, or the full address if it collides with another email
         let localParts = Dictionary(grouping: Set(keys.map(\.account)), by: Self.localPart)
 
-        return keys.map { key in
+        func title(_ key: AccountKey) -> String {
             let cfg = config.first { $0.key == key }
             let local = Self.localPart(key.account)
             let name = (localParts[local]?.count ?? 0) > 1 ? key.account : local
+            return [cfg?.emoji, cfg?.label ?? name].compactMap { $0 }.joined(separator: " ")
+        }
+
+        return keys.map { key in
+            let cfg = config.first { $0.key == key }
             let batch = log.latest[key]
             let isLive = live.contains(key)
             // Even when logged in, an old value (e.g. a past record read from logs) excludes later usage, so it is a lower bound
@@ -266,13 +286,14 @@ actor UsageEngine {
             }
             return AccountView(key: key,
                                label: cfg?.emoji ?? cfg?.label ?? Self.defaultLabel(for: key),
-                               title: [cfg?.emoji, cfg?.label ?? name].compactMap { $0 }.joined(separator: " "),
+                               title: title(key),
                                isLive: isLive,
                                observedAt: batch?.observedAt,
                                source: batch?.source,
                                error: errors[key],
                                windows: windows,
-                               pausedUntil: paused[key])
+                               pausedUntil: paused[key],
+                               credentialsOf: mismatch[key].map(title))
         }
     }
 }
@@ -288,6 +309,9 @@ struct AccountView: Identifiable, Hashable {
     let windows: [WindowEstimate]
     /// Set while the gate is holding back after a 429: the windows above are the last value, the login dot turns orange
     var pausedUntil: Date? = nil
+    /// Set while fetching is skipped because the credentials seem to be this other account's (its panel title).
+    /// The login mark shows a violet ring; the reason and the fix are in the tooltip (#29)
+    var credentialsOf: String? = nil
 
     var id: String { key.id }
 
