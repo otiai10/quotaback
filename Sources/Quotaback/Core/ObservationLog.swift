@@ -99,15 +99,20 @@ struct ObservationLog {
 
     /// Retracts every batch of an account observed in `from...through` (e.g. a run of polls recorded for the wrong account).
     /// If latest falls in that range, it falls back to the last history batch before `from`. History is only appended
-    /// when values change, so that batch may be older than the last correct latest (same values, earlier time)
-    mutating func retract(of account: AccountKey, from: Date, through: Date = .distantFuture) {
+    /// when values change, so that batch may be older than the last correct latest (same values, earlier time).
+    /// Cycle summaries are rebuilt afterwards, so a cycle closed from retracted observations leaves no row behind
+    mutating func retract(of account: AccountKey, from: Date, through: Date = .distantFuture, now: Date = Date()) {
         let range = from...through
         let before = history.count
         history.removeAll { $0.account == account && range.contains($0.observedAt) }
         if history.count != before { rewriteHistory() }
-        guard let current = latest[account], range.contains(current.observedAt) else { return }
-        latest[account] = history.last { $0.account == account && $0.observedAt < from }
-        saveLatest()
+        var changed = history.count != before
+        if let current = latest[account], range.contains(current.observedAt) {
+            latest[account] = history.last { $0.account == account && $0.observedAt < from }
+            saveLatest()
+            changed = true
+        }
+        if changed { _ = rebuildCycles(now: now) }
     }
 
     /// Same windows, values and reset times (to the minute) count as the same
