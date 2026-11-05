@@ -18,7 +18,8 @@ struct ClaudeProvider: UsageProvider {
                     let data = try await UsageClient.fetch(token: token, account: source.ownerEmail() ?? source.id)
                     return try Self.received(data, token: token, files: files)
                 },
-                rawResponses: files)
+                rawResponses: files,
+                credentialFingerprint: { (try? source.accessToken()).map(CredentialSource.fingerprint) })
         }
     }
 
