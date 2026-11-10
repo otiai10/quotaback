@@ -186,10 +186,12 @@ struct AnalyticsCharts: View {
                              series: .value("Line", "\(p.series) \(p.kind)"))
                         .foregroundStyle(by: .value("Window", p.label))
                         .lineStyle(p.kind == .projected ? StrokeStyle(lineWidth: 1.5, dash: [2, 3]) : StrokeStyle(lineWidth: 2))
+                        .opacity(p.isLive ? 1 : Self.notLiveOpacity)
                     if p.kind == .observed {
                         PointMark(x: .value(L10n.analyticsElapsed, p.elapsed), y: .value("%", p.percent))
                             .foregroundStyle(by: .value("Window", p.label))
                             .symbolSize(16)
+                            .opacity(p.isLive ? 1 : Self.notLiveOpacity)
                     }
                 }
             }
@@ -208,6 +210,7 @@ struct AnalyticsCharts: View {
                                                    width: Self.limitLabelWidth, within: 0...geo.size.width)
                     ForEach(Array(zip(marks, xs)), id: \.0.id) { m, x in
                         limitLabel(m, color: color(m.label))
+                            .opacity(m.isLive ? 1 : Self.notLiveOpacity)
                             .position(x: x, y: plot.minY - Self.limitLabelHeight / 2 - 2)
                     }
                 }
@@ -236,6 +239,8 @@ struct AnalyticsCharts: View {
     /// Room a limit label takes, a little more than "12/30 (Wed)" so that neighbors keep a gap
     private static let limitLabelWidth: CGFloat = 72
     private static let limitLabelHeight: CGFloat = 26
+    /// Lines of accounts not logged in
+    private static let notLiveOpacity = 0.4
     private static let seriesColors: [Color] = [.blue, .green, .orange, .purple, .red, .teal, .pink, .yellow]
 
     /// The parts of the panel's "M/d (E) HH:mm"

@@ -239,9 +239,11 @@ actor UsageEngine {
         AnalyticsInput(
             cycles: log.cycles,
             titles: Dictionary(views.map { ($0.key, $0.title) }, uniquingKeysWith: { a, _ in a }),
-            live: views.filter(\.isLive).flatMap { v in
+            // Accounts not logged in too: their lines stop at the last observation (faded, no projection)
+            live: views.flatMap { v in
                 v.windows.map { AnalyticsInput.LiveWindow(account: v.key, estimate: $0,
-                                                          points: log.points(account: v.key, window: $0.window)) }
+                                                          points: log.points(account: v.key, window: $0.window),
+                                                          isLive: v.isLive) }
             },
             now: now)
     }

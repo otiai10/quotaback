@@ -188,6 +188,19 @@ final class AnalyticsModelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(abs(xs[0] - xs[1]), 72 - 1e-9)
     }
 
+    /// An account not logged in keeps its line up to the last observation, faded, without a projection
+    func testNotLoggedInHasNoProjection() {
+        let reset = t0 + 4 * day
+        let start = reset - week
+        let lw = AnalyticsInput.LiveWindow(
+            account: w, estimate: estimate(window("weekly_all", percent: 20, resetsAt: reset), eta: start + 0.5 * week),
+            points: [(start + 0.1 * week, 10), (start + 0.2 * week, 20)], isLive: false)
+        let points = AnalyticsModel.burndown([lw], titles: titles)
+        XCTAssertEqual(points.map(\.kind), [.observed, .observed])
+        XCTAssertTrue(points.allSatisfy { !$0.isLive })
+        XCTAssertTrue(AnalyticsModel.limitMarks(points).isEmpty)
+    }
+
     func testSpreadMovesOnlyOverlappingLabels() {
         // Far apart: untouched
         XCTAssertEqual(AnalyticsModel.spread([100, 300, 200], width: 50, within: 0...500), [100, 300, 200])
