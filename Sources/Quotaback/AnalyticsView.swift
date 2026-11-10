@@ -246,7 +246,7 @@ struct AnalyticsCharts: View {
     private static let limitLabelWidth: CGFloat = 72
     private static let limitLabelHeight: CGFloat = 26
     /// Lines of accounts not logged in: faint, and in a muted color
-    private static let notLiveOpacity = 0.4
+    private static let notLiveOpacity = 0.7
     private static let notLiveSaturation: CGFloat = 0.3
 
     private static func muted(_ color: Color) -> Color {
