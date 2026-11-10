@@ -172,7 +172,12 @@ struct AnalyticsCharts: View {
         } else {
             // Explicit colors so that the limit labels (plain views, not marks) can match their lines
             let labels = points.map(\.label).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-            let color = { (label: String) in Self.seriesColors[(labels.firstIndex(of: label) ?? 0) % Self.seriesColors.count] }
+            // Accounts not logged in get a muted version of their color (in the legend too)
+            let notLive = Set(points.filter { !$0.isLive }.map(\.label))
+            let color = { (label: String) -> Color in
+                let base = Self.seriesColors[(labels.firstIndex(of: label) ?? 0) % Self.seriesColors.count]
+                return notLive.contains(label) ? Self.muted(base) : base
+            }
             let marks = AnalyticsModel.limitMarks(points)
             Chart {
                 LineMark(x: .value(L10n.analyticsElapsed, 0), y: .value("%", 0), series: .value("Line", "ideal"))
@@ -185,11 +190,14 @@ struct AnalyticsCharts: View {
                     LineMark(x: .value(L10n.analyticsElapsed, p.elapsed), y: .value("%", p.percent),
                              series: .value("Line", "\(p.series) \(p.kind)"))
                         .foregroundStyle(by: .value("Window", p.label))
-                        .lineStyle(p.kind == .projected ? StrokeStyle(lineWidth: 1.5, dash: [2, 3]) : StrokeStyle(lineWidth: 2))
+                        .lineStyle(p.kind == .projected ? StrokeStyle(lineWidth: 1.5, dash: [2, 3])
+                                   : StrokeStyle(lineWidth: p.isLive ? 2 : 1))
+                        .opacity(p.isLive ? 1 : Self.notLiveOpacity)
                     if p.kind == .observed {
                         PointMark(x: .value(L10n.analyticsElapsed, p.elapsed), y: .value("%", p.percent))
                             .foregroundStyle(by: .value("Window", p.label))
-                            .symbolSize(16)
+                            .symbolSize(p.isLive ? 16 : 6)
+                            .opacity(p.isLive ? 1 : Self.notLiveOpacity)
                     }
                 }
             }
@@ -208,6 +216,7 @@ struct AnalyticsCharts: View {
                                                    width: Self.limitLabelWidth, within: 0...geo.size.width)
                     ForEach(Array(zip(marks, xs)), id: \.0.id) { m, x in
                         limitLabel(m, color: color(m.label))
+                            .opacity(m.isLive ? 1 : Self.notLiveOpacity)
                             .position(x: x, y: plot.minY - Self.limitLabelHeight / 2 - 2)
                     }
                 }
@@ -236,6 +245,15 @@ struct AnalyticsCharts: View {
     /// Room a limit label takes, a little more than "12/30 (Wed)" so that neighbors keep a gap
     private static let limitLabelWidth: CGFloat = 72
     private static let limitLabelHeight: CGFloat = 26
+    /// Lines of accounts not logged in: faint, and in a muted color
+    private static let notLiveOpacity = 0.7
+    private static let notLiveSaturation: CGFloat = 0.3
+
+    private static func muted(_ color: Color) -> Color {
+        guard let c = NSColor(color).usingColorSpace(.sRGB) else { return color }
+        return Color(nsColor: NSColor(hue: c.hueComponent, saturation: c.saturationComponent * notLiveSaturation,
+                                      brightness: c.brightnessComponent, alpha: c.alphaComponent))
+    }
     private static let seriesColors: [Color] = [.blue, .green, .orange, .purple, .red, .teal, .pink, .yellow]
 
     /// The parts of the panel's "M/d (E) HH:mm"

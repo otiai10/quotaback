@@ -2,11 +2,14 @@ import Foundation
 
 /// What the Analytics window shows, taken from UsageEngine: past cycles and the current cycle of logged-in accounts
 struct AnalyticsInput {
+    /// A usage-limit window's current cycle. Accounts not logged in are included too, up to their last observation
     struct LiveWindow {
         let account: AccountKey
         let estimate: WindowEstimate
         /// Observations in the current cycle (oldest first)
         let points: [(Date, Double)]
+        /// Logged in now. Otherwise the line is faded and has no projection (its pace since is unknown)
+        var isLive = true
     }
 
     var cycles: [CycleSummary] = []
@@ -124,6 +127,8 @@ enum AnalyticsModel {
         let kind: Kind
         /// The reset that ends this cycle
         let resetsAt: Date
+        /// The account is logged in now
+        var isLive = true
 
         var id: String { "\(series) \(kind) \(at.timeIntervalSince1970)" }
     }
@@ -147,9 +152,9 @@ enum AnalyticsModel {
             let label = "\(titles(lw.account)) · \(w.title)"
             var points = lw.points.map {
                 BurnPoint(series: series, label: label, at: $0.0, elapsed: elapsed($0.0), percent: $0.1, kind: .observed,
-                          resetsAt: reset)
+                          resetsAt: reset, isLive: lw.isLive)
             }
-            if let eta = lw.estimate.limitETA, let last = lw.points.last {
+            if lw.isLive, let eta = lw.estimate.limitETA, let last = lw.points.last {
                 points += [BurnPoint(series: series, label: label, at: last.0, elapsed: elapsed(last.0), percent: last.1, kind: .projected,
                                      resetsAt: reset),
                            BurnPoint(series: series, label: label, at: eta, elapsed: elapsed(eta), percent: 100, kind: .projected,
@@ -169,6 +174,7 @@ enum AnalyticsModel {
         let elapsed: Double
         let at: Date
         let resetsAt: Date
+        var isLive = true
 
         var id: String { series }
     }
@@ -183,7 +189,8 @@ enum AnalyticsModel {
         return (reached.values.map { ($0, LimitMark.Kind.reached) } + projected.map { ($0, .projected) })
             .sorted { $0.0.at < $1.0.at }
             .map { p, kind in
-                LimitMark(series: p.series, label: p.label, kind: kind, elapsed: p.elapsed, at: p.at, resetsAt: p.resetsAt)
+                LimitMark(series: p.series, label: p.label, kind: kind, elapsed: p.elapsed, at: p.at, resetsAt: p.resetsAt,
+                          isLive: p.isLive)
             }
     }
 
