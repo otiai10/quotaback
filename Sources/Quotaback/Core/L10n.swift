@@ -76,8 +76,8 @@ enum L10n {
     }
     static var analyticsBurndown: String { t("Current cycle", "今の周期のバーンダウン") }
     static var analyticsBurndownNote: String {
-        t("The diagonal is the even pace to 100% at the reset; the dotted tail is the projection at the current pace; 😎 marks a limit already hit. Faded lines are accounts not logged in, up to their last observation",
-          "対角線はリセットでちょうど 100% になるペース、点線は今のペースでの見込み、😎 は上限に達した枠。薄い線は未ログインのアカウントで、最後の観測まで")
+        t("The diagonal is the even pace to 100% at the reset; the dotted tail is the projection at the current pace. Faded lines are accounts not logged in, up to their last observation",
+          "対角線はリセットでちょうど 100% になるペース、点線は今のペースでの見込み。薄い線は未ログインのアカウントで、最後の観測まで")
     }
     static var analyticsElapsed: String { t("Time into cycle (%)", "周期の経過時間 (%)") }
     static var analyticsUsage: String { t("Usage (%)", "消費率 (%)") }
