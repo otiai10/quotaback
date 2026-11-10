@@ -76,8 +76,8 @@ enum L10n {
     }
     static var analyticsBurndown: String { t("Current cycle", "今の周期のバーンダウン") }
     static var analyticsBurndownNote: String {
-        t("Logged-in accounts. The diagonal is the even pace to 100% at the reset; the dotted tail is the projection at the current pace",
-          "ログイン中のアカウント。対角線はリセットでちょうど 100% になるペース、点線は今のペースでの見込み")
+        t("Logged-in accounts. The diagonal is the even pace to 100% at the reset; the dotted tail is the projection at the current pace; 😎 marks a limit already hit",
+          "ログイン中のアカウント。対角線はリセットでちょうど 100% になるペース、点線は今のペースでの見込み、😎 は上限に達した枠")
     }
     static var analyticsElapsed: String { t("Time into cycle (%)", "周期の経過時間 (%)") }
     static var analyticsUsage: String { t("Usage (%)", "消費率 (%)") }
@@ -86,6 +86,11 @@ enum L10n {
     static func analyticsLimitHelp(_ at: String, _ lead: String, _ reset: String) -> String {
         t("Limit hit \(at) at the current pace, \(lead) before the reset \(reset)",
           "このペースだと \(at) に上限（リセット \(reset) の \(lead) 前）")
+    }
+    /// Tooltip of a reached mark on the burndown: when the limit was hit, how long before the reset, and the reset
+    static func analyticsReachedHelp(_ at: String, _ lead: String, _ reset: String) -> String {
+        t("Limit hit \(at), \(lead) before the reset \(reset)",
+          "\(at) に上限到達（リセット \(reset) の \(lead) 前）")
     }
     /// "1d 18h" / "1日18時間". Hours only under a day, minutes only under an hour
     static func duration(_ seconds: TimeInterval) -> String {

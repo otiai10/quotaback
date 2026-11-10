@@ -39,7 +39,7 @@ final class AnalyticsRenderTests: XCTestCase {
         }
         let weekly = WindowObservation(key: "weekly_all", title: "Current week (all models)", percent: 58, resetsAt: reset,
                                        isLimit: true, detail: nil, cadence: .fixed(week))
-        let session = WindowObservation(key: "session", title: "Current session", percent: 35, resetsAt: t0 + 2 * hour,
+        let session = WindowObservation(key: "session", title: "Current session", percent: 100, resetsAt: t0 + 2 * hour,
                                         isLimit: true, detail: nil, cadence: .rolling(5 * hour))
         let fable = WindowObservation(key: "weekly_scoped/Fable", title: "Current week (Fable)", percent: 66, resetsAt: reset,
                                       isLimit: true, detail: nil, cadence: .fixed(week))
@@ -58,9 +58,11 @@ final class AnalyticsRenderTests: XCTestCase {
                 points: [(start + 0.1 * week, 5), (start + 0.25 * week, 21), (start + 0.4 * week, 40), (t0, 58)]),
             AnalyticsInput.LiveWindow(
                 account: p,
-                estimate: WindowEstimate(window: session, value: .exact(35), nextReset: .known(t0 + 2 * hour),
+                // Already at its limit: 😎 over the time it hit, instead of a projection
+                estimate: WindowEstimate(window: session, value: .exact(100), nextReset: .known(t0 + 2 * hour),
                                          observedAt: t0, limitETA: nil),
-                points: [(t0 - 2 * hour, 4), (t0 - hour, 20), (t0, 35)]),
+                points: [(t0 - 2.5 * hour, 10), (t0 - 1.5 * hour, 45), (t0 - 0.75 * hour, 80), (t0 - 0.25 * hour, 100),
+                         (t0, 100)]),
         ]
         return AnalyticsInput(cycles: cycles, titles: [p: "P", w: "W"], live: live, now: t0)
     }
