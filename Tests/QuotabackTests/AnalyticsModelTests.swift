@@ -134,6 +134,60 @@ final class AnalyticsModelTests: XCTestCase {
         XCTAssertEqual(marks.first?.resetsAt, reset)
     }
 
+    /// #39 AC-1: a line that hit 100% gets a reached mark at its first observation at the limit
+    func testReachedMarkIsTheFirstObservationAtTheLimit() {
+        let reset = t0 + 2 * hour
+        let start = reset - 5 * hour
+        let session = window("session", percent: 100, resetsAt: reset, cadence: .rolling(5 * hour))
+        let live = [AnalyticsInput.LiveWindow(account: p, estimate: estimate(session, eta: nil),
+                                              points: [(start + hour, 40), (start + 2 * hour, 100), (start + 2.5 * hour, 100)])]
+        let marks = AnalyticsModel.limitMarks(AnalyticsModel.burndown(live, titles: titles))
+        XCTAssertEqual(marks.count, 1)
+        XCTAssertEqual(marks.first?.kind, .reached)
+        XCTAssertEqual(marks.first?.at, start + 2 * hour)
+        XCTAssertEqual(marks.first?.elapsed ?? 0, 40, accuracy: 1e-9)
+        XCTAssertEqual(marks.first?.resetsAt, reset)
+    }
+
+    /// #39 AC-2, AC-3: projections and reached limits together, earliest first; a line below 100% without a
+    /// projection has no mark
+    func testReachedAndProjectedMarksTogether() {
+        let reset = t0 + 4 * day
+        let start = reset - week
+        let projected = AnalyticsInput.LiveWindow(
+            account: p, estimate: estimate(window("weekly_all", percent: 20, resetsAt: reset), eta: start + 0.5 * week),
+            points: [(start + 0.1 * week, 10), (start + 0.2 * week, 20)])
+        let reached = AnalyticsInput.LiveWindow(
+            account: p, estimate: estimate(window("weekly_scoped/Fable", percent: 100, resetsAt: reset), eta: nil),
+            points: [(start + 0.1 * week, 50), (start + 0.3 * week, 100)])
+        let below = AnalyticsInput.LiveWindow(
+            account: w, estimate: estimate(window("weekly_all", percent: 30, resetsAt: reset), eta: nil),
+            points: [(start + 0.1 * week, 10), (start + 0.2 * week, 30)])
+        let marks = AnalyticsModel.limitMarks(AnalyticsModel.burndown([projected, reached, below], titles: titles))
+        XCTAssertEqual(marks.map(\.series), ["\(p.id) weekly_scoped/Fable", "\(p.id) weekly_all"])
+        XCTAssertEqual(marks.map(\.kind), [.reached, .projected])
+        XCTAssertEqual(marks.map(\.at), [start + 0.3 * week, start + 0.5 * week])
+    }
+
+    /// #39 AC-6: a reached mark next to a projected one is pushed apart like any two labels
+    func testReachedAndProjectedMarksDoNotOverlap() {
+        let reset = t0 + 4 * day
+        let start = reset - week
+        let live = [
+            AnalyticsInput.LiveWindow(
+                account: p, estimate: estimate(window("weekly_all", percent: 20, resetsAt: reset), eta: start + 0.31 * week),
+                points: [(start + 0.1 * week, 10), (start + 0.2 * week, 20)]),
+            AnalyticsInput.LiveWindow(
+                account: p, estimate: estimate(window("weekly_scoped/Fable", percent: 100, resetsAt: reset), eta: nil),
+                points: [(start + 0.1 * week, 50), (start + 0.3 * week, 100)]),
+        ]
+        let marks = AnalyticsModel.limitMarks(AnalyticsModel.burndown(live, titles: titles))
+        XCTAssertEqual(Set(marks.map(\.kind)), [.reached, .projected])
+        // A 500pt wide plot: 30% and 31% are 5pt apart, far closer than a 72pt label
+        let xs = AnalyticsModel.spread(marks.map { $0.elapsed * 5 }, width: 72, within: 0...500)
+        XCTAssertGreaterThanOrEqual(abs(xs[0] - xs[1]), 72 - 1e-9)
+    }
+
     func testSpreadMovesOnlyOverlappingLabels() {
         // Far apart: untouched
         XCTAssertEqual(AnalyticsModel.spread([100, 300, 200], width: 50, within: 0...500), [100, 300, 200])

@@ -217,17 +217,20 @@ struct AnalyticsCharts: View {
         }
     }
 
-    /// When the tail hits 100%: the day over the time, in the line's color. Hover for the reset and how much earlier
+    /// When the line hits 100%, in the line's color: the day over the time for a projection, 😎 over the time once it
+    /// has hit (an emoji takes no color, so the time tells whose it is). Hover for the reset and how much earlier
     private func limitLabel(_ m: AnalyticsModel.LimitMark, color: Color) -> some View {
-        VStack(spacing: 0) {
-            Text(Self.limitFormat("M/d (E)", m.at))
+        let lead = L10n.duration(m.resetsAt.timeIntervalSince(m.at))
+        return VStack(spacing: 0) {
+            Text(m.kind == .reached ? "😎" : Self.limitFormat("M/d (E)", m.at))
             Text(Self.limitFormat("HH:mm", m.at))
         }
         .font(.caption2.monospacedDigit().weight(.semibold))
         .foregroundStyle(color)
         .fixedSize()
-        .help(L10n.analyticsLimitHelp(WindowRow.format(m.at), L10n.duration(m.resetsAt.timeIntervalSince(m.at)),
-                                      WindowRow.format(m.resetsAt)))
+        .help(m.kind == .reached
+              ? L10n.analyticsReachedHelp(WindowRow.format(m.at), lead, WindowRow.format(m.resetsAt))
+              : L10n.analyticsLimitHelp(WindowRow.format(m.at), lead, WindowRow.format(m.resetsAt)))
     }
 
     /// Room a limit label takes, a little more than "12/30 (Wed)" so that neighbors keep a gap

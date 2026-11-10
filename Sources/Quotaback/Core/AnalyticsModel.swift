@@ -159,10 +159,13 @@ enum AnalyticsModel {
         }
     }
 
-    /// The end of a projected tail: when the window is projected to hit its limit before the reset
+    /// A label above the chart where a line meets 100%: the end of a projected tail (when the window is projected to hit
+    /// its limit before the reset), or the first observation that already hit it
     struct LimitMark: Identifiable, Hashable {
+        enum Kind: Hashable { case projected, reached }
         let series: String
         let label: String
+        let kind: Kind
         let elapsed: Double
         let at: Date
         let resetsAt: Date
@@ -170,11 +173,18 @@ enum AnalyticsModel {
         var id: String { series }
     }
 
-    /// The limit marks of `burndown`'s projections, earliest first
+    /// The limit marks of `burndown`: one per line that reached 100% (its first observation at the limit) or is
+    /// projected to, earliest first
     static func limitMarks(_ points: [BurnPoint]) -> [LimitMark] {
-        points.filter { $0.kind == .projected && $0.percent >= 100 }
-            .sorted { $0.at < $1.at }
-            .map { LimitMark(series: $0.series, label: $0.label, elapsed: $0.elapsed, at: $0.at, resetsAt: $0.resetsAt) }
+        var reached: [String: BurnPoint] = [:]
+        for p in points where p.kind == .observed && p.percent >= 100 && reached[p.series] == nil { reached[p.series] = p }
+        // No projection once at the limit; if there were one, the observation wins
+        let projected = points.filter { $0.kind == .projected && $0.percent >= 100 && reached[$0.series] == nil }
+        return (reached.values.map { ($0, LimitMark.Kind.reached) } + projected.map { ($0, .projected) })
+            .sorted { $0.0.at < $1.0.at }
+            .map { p, kind in
+                LimitMark(series: p.series, label: p.label, kind: kind, elapsed: p.elapsed, at: p.at, resetsAt: p.resetsAt)
+            }
     }
 
     /// Centers for labels `width` wide that want to sit at `xs`, moved as little as possible so that none overlap
