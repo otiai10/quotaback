@@ -22,8 +22,10 @@ final class UsageStore: ObservableObject {
     private var refreshTimer: Timer?
     private var watchTimer: Timer?
     private var switchTimer: Timer?
-    private var lastFetchAt: Date?
-    private var pending = false
+    /// Target → when it was last sent to the engine (any reason). Drives `PollSchedule`
+    private var lastAttempt: [String: Date] = [:]
+    /// Targets asked for while a refresh was running; fetched right after it
+    private var pending: [PollTarget] = []
     private var configWatcher: DispatchSourceFileSystemObject?
     private var configStamp: Date?
 
@@ -35,8 +37,6 @@ final class UsageStore: ObservableObject {
     static let switchDebounce: UInt64 = 1_000_000_000
     /// Retries (seconds later) after skipping mid-switch. The second one comes after the mix-up check settles
     static let retryDelays: [TimeInterval] = [5, UsageEngine.conflictSettle + 5]
-    /// When the panel opens, refetch if the last fetch is older than this
-    static let staleOnOpen: TimeInterval = UsageRequestGate.minimumInterval
 
     init() {
         config = AppConfig.load()
@@ -53,9 +53,8 @@ final class UsageStore: ObservableObject {
         switchTimer?.invalidate()
         Task { await updateViews() }
         refreshAll(reason: "start")
-        let interval = TimeInterval(max(60, config.refreshSeconds))
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshAll(reason: "timer") }
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: PollSchedule.tick, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.refreshDue(reason: "timer") }
         }
         watchTimer = Timer.scheduledTimer(withTimeInterval: Self.watchInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.watch() }
@@ -65,13 +64,12 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// When the panel opens: check for a switch now, and refetch if values are stale
+    /// When the panel opens: check for a switch now, and fetch what is due without waiting for the next tick.
+    /// Opening the panel is not an explicit fetch, so it follows `PollSchedule` (the "Refresh" menu doesn't)
     func panelOpened() {
         Task {
             await checkSwitch(reason: "panel")
-            if lastFetchAt.map({ Date().timeIntervalSince($0) > Self.staleOnOpen }) ?? true {
-                refresh(targets, reason: "panel")
-            }
+            await refreshDue(reason: "panel")
         }
     }
 
@@ -122,7 +120,28 @@ final class UsageStore: ObservableObject {
         config = new
     }
 
-    /// Fetches all targets. Also rediscovers locations here (e.g. a newly added `CLAUDE_CONFIG_DIR`)
+    /// Fetches the targets whose `PollSchedule` interval has passed since their last attempt.
+    /// When anything is due, also rediscovers locations (e.g. a newly added `CLAUDE_CONFIG_DIR`); new ones are due at once
+    private func refreshDue(reason: String) async {
+        guard !(await dueTargets(targets)).isEmpty else { return }
+        targets = Providers.targets(config: config)
+        refresh(await dueTargets(targets), reason: reason)
+    }
+
+    private func dueTargets(_ list: [PollTarget]) async -> [PollTarget] {
+        let now = Date()
+        var due: [PollTarget] = []
+        for t in list {
+            guard let last = lastAttempt[t.id] else { due.append(t); continue }
+            // Half a tick of tolerance so a 15-minute interval isn't pushed to 15.5 by timer jitter
+            if now.timeIntervalSince(last) >= (await engine.pollInterval(t, now: now)) - PollSchedule.tick / 2 {
+                due.append(t)
+            }
+        }
+        return due
+    }
+
+    /// Fetches all targets now (start, the "Refresh" menu, a language change). Also rediscovers locations
     func refreshAll(reason: String = "manual") {
         targets = Providers.targets(config: config)
         refresh(targets, reason: reason)
@@ -131,18 +150,23 @@ final class UsageStore: ObservableObject {
     /// - Parameter attempt: how many times targets skipped mid-switch have been retried
     private func refresh(_ list: [PollTarget], reason: String, attempt: Int = 0) {
         guard !list.isEmpty else { return }
-        // If called while fetching, fetch everything again once it's done
-        guard !refreshing else { pending = true; return }
+        // If called while fetching, fetch these right after it
+        guard !refreshing else {
+            pending += list.filter { t in !pending.contains { $0.id == t.id } }
+            return
+        }
         refreshing = true
+        let started = Date()
+        for t in list { lastAttempt[t.id] = started }
         Task {
             let reports = await engine.refresh(list, reason: reason)
-            lastFetchAt = Date()
             await registerObservedAccounts()
             await updateViews()
             refreshing = false
-            if pending {
-                pending = false
-                refreshAll(reason: "pending")
+            if !pending.isEmpty {
+                let next = pending
+                pending = []
+                refresh(next, reason: "pending")
             }
             let skipped = reports.compactMap { r -> PollTarget? in
                 if case .skipped = r.outcome { return r.target }
