@@ -27,7 +27,7 @@ actor UsageEngine {
     /// Whichever of the owner info and the credentials `/login` writes first, both should be in place by then
     static let conflictSettle: TimeInterval = 30
     /// How long after an observation a logged-in account's value still counts as current (exact)
-    static let freshness: TimeInterval = 10 * 60
+    static let freshness: TimeInterval = PollSchedule.regular + PollSchedule.slack
     /// Target → the owner last checked and the mtime of its source (for switch detection)
     private var knownOwner: [String: String?] = [:]
     private var knownStamp: [String: Date?] = [:]
@@ -250,6 +250,12 @@ actor UsageEngine {
 
     /// Accounts observed so far (used to add them to config.json)
     var observedAccounts: [AccountKey] { log.latest.keys.sorted() }
+
+    /// How long after the last attempt `t` is due again, judged by its current owner's latest values
+    func pollInterval(_ t: PollTarget, now: Date = Date()) -> TimeInterval {
+        let batch = t.owner().flatMap { log.latest[AccountKey(provider: t.provider, account: $0)] }
+        return PollSchedule.interval(after: batch, now: now)
+    }
 
     /// For display: configured accounts (in order) + accounts found through observations or errors
     func accountViews(config: [AccountConfig], now: Date = Date()) -> [AccountView] {

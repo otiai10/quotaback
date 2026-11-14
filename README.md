@@ -60,7 +60,6 @@ Settings live in `~/.config/quotaback/config.json` (**Open Settings** in the pan
 ```json
 {
   "language": "en",
-  "refreshSeconds": 300,
   "accounts": [
     { "email": "personal@example.com", "provider": "claude", "emoji": "🏈", "label": "Personal" },
     { "email": "work@example.com", "provider": "claude", "emoji": "💼", "label": "Work" },
@@ -72,7 +71,6 @@ Settings live in `~/.config/quotaback/config.json` (**Open Settings** in the pan
 | Key | |
 |---|---|
 | `language` | `en` (default) or `ja` |
-| `refreshSeconds` | How often to fetch, in seconds (default 300) |
 | `accounts[].email` | 観測したアカウントはメールアドレスと `provider` で自動的に追加されます |
 | `accounts[].provider` | `claude` か `codex`。保存時は常に明記します。旧設定での省略は `claude` として読み込みます |
 | `accounts[].emoji` | Marks the account in the menu bar and the panel |
@@ -84,6 +82,7 @@ Settings live in `~/.config/quotaback/config.json` (**Open Settings** in the pan
 - **Codex CLI**: no API calls. Reads the latest `rate_limits` from the Codex session logs under `~/.codex/sessions`.
 - **Who owns the token** is decided at runtime from `~/.claude.json` (`oauthAccount.emailAddress`) or Codex's `auth.json`, not from your config.
 - **Data**: observations stay on your Mac, in `~/.config/quotaback/`. Estimates (lower bounds, projected resets, time to 100%) are recomputed from them each time.
+- **How often**: every 15 minutes, or every 5 minutes while any usage-limit window of the logged-in account is at 70% or more. **Refresh** in the right-click menu and a `/login` switch fetch right away. Opening the panel fetches only what is due.
 - **Rate limiting**: the Claude usage API is called at most once every 60 seconds per account, including manual refreshes, opening the panel and restarts. After a 429, every Claude account pauses for 5 minutes, doubling up to 30 minutes if it keeps happening, or longer when the server sends `Retry-After`. The pause survives restarts (`usage-throttle.json`). While paused, the panel keeps showing the last value and the green login dot turns orange (hover it for when updates resume) rather than showing an error; the 429 itself is written once to `activity.log` with the `Retry-After` value.
 
 > [!WARNING]

@@ -16,13 +16,14 @@ final class AnalyticsModelTests: XCTestCase {
 
     func titles(_ a: AccountKey) -> String { a == p ? "P" : "W" }
 
-    /// AC-2: a cycle whose last observation is more than 15 minutes before the reset is a lower bound
+    /// AC-2: a cycle whose last observation is more than one regular interval (plus slack) before the reset is a lower bound
     func testFinalUsageMarksLowerBounds() {
         let r = t0 + week
+        let gap = AnalyticsModel.lowerBoundGap
         let series = AnalyticsModel.finalUsage([
-            cycle(p, resetsAt: r, final: 80, lastObservedBefore: 5 * 60),
-            cycle(p, resetsAt: r + week, final: 60, lastObservedBefore: 15 * 60),
-            cycle(p, resetsAt: r + 2 * week, final: 40, lastObservedBefore: 15 * 60 + 1),
+            cycle(p, resetsAt: r, final: 80, lastObservedBefore: PollSchedule.regular),
+            cycle(p, resetsAt: r + week, final: 60, lastObservedBefore: gap),
+            cycle(p, resetsAt: r + 2 * week, final: 40, lastObservedBefore: gap + 1),
             cycle(p, resetsAt: r + 3 * week, final: 30, lastObservedBefore: 3 * day),
         ], now: r + 3 * week + hour)
         XCTAssertEqual(series.count, 1)

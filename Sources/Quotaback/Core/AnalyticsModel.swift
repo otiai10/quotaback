@@ -26,7 +26,7 @@ struct AnalyticsInput {
 /// Chart data for the Analytics window. Pure functions so that they can be tested without the UI
 enum AnalyticsModel {
     /// A cycle whose last observation is this long before the reset ended while not logged in: its final value is a lower bound
-    static let lowerBoundGap: TimeInterval = 15 * 60
+    static let lowerBoundGap: TimeInterval = PollSchedule.regular + PollSchedule.slack
 
     static func isLowerBound(_ s: CycleSummary) -> Bool {
         s.resetsAt.timeIntervalSince(s.lastObservedAt) > lowerBoundGap

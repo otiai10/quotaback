@@ -92,7 +92,7 @@ final class CredentialsTests: XCTestCase {
 }
 
 final class AppConfigTests: XCTestCase {
-    let base = AppConfig(refreshSeconds: 300, accounts: [
+    let base = AppConfig(accounts: [
         AccountConfig(email: "p@example.com", label: "P"),
         AccountConfig(email: "w@example.com", label: "W"),
     ])
@@ -105,11 +105,7 @@ final class AppConfigTests: XCTestCase {
         XCTAssertFalse(new.needsRefetch(comparedTo: base))
     }
 
-    func testSourceOrIntervalChangeNeedsRefetch() {
-        var interval = base
-        interval.refreshSeconds = 120
-        XCTAssertTrue(interval.needsRefetch(comparedTo: base))
-
+    func testSourceOrAccountChangeNeedsRefetch() {
         var sources = base
         sources.sources = [CredentialSource(credentialsPath: "~/.claude-work/.credentials.json")]
         XCTAssertTrue(sources.needsRefetch(comparedTo: base))

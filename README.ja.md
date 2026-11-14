@@ -59,6 +59,9 @@ Claude Code／Codex CLI 本体のインストールが必要です。
 切り替え、再起動後にアカウントを確認してください。
 
 
+取得は 15 分ごとです。ログイン中のアカウントの上限枠のどれかが 70% 以上のときは 5 分ごとになります。
+右クリックメニューの「更新」と `/login` での切り替えはすぐに取得します。パネルを開いたときは、間隔が過ぎているものだけを取得します。
+
 Claude の使用量 API は、手動更新・パネルの開閉・再起動を含め、同じアカウントへは
 最短 60 秒間隔で取得します。429 が返った場合は全 Claude アカウントの取得を
 5 分休止し、繰り返す場合は最大 30 分まで待機を延ばします。
@@ -83,7 +86,6 @@ Claude の使用量 API は、手動更新・パネルの開閉・再起動を�
 ```json
 {
   "language": "ja",
-  "refreshSeconds": 300,
   "accounts": [
     { "email": "personal@example.com", "provider": "claude", "emoji": "🏈", "label": "個人" },
     { "email": "work@example.com", "provider": "claude", "emoji": "💼", "label": "仕事" },
@@ -95,7 +97,6 @@ Claude の使用量 API は、手動更新・パネルの開閉・再起動を�
 | キー | |
 |---|---|
 | `language` | `en`（既定）か `ja` |
-| `refreshSeconds` | 取得の間隔（秒、既定は 300） |
 | `accounts[].email` | アカウント。観測したアカウントはメールアドレスと `provider` で自動的に書き足されます |
 | `accounts[].provider` | `claude` か `codex`。保存時は常に明記します。旧設定で省略されている場合は `claude` として読み込みます |
 | `accounts[].emoji` | メニューバーとパネルでアカウントの印にする絵文字 |

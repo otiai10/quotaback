@@ -60,7 +60,6 @@ struct AccountConfig: Codable, Identifiable, Hashable {
 struct AppConfig: Codable, Equatable {
     /// Display language, "en" or "ja". Defaults to English
     var language: String?
-    var refreshSeconds: Int
     var accounts: [AccountConfig]
     /// Claude credential locations. If omitted, legacy entries in accounts[] plus auto-discovery (`CredentialSource.discover()`)
     var sources: [CredentialSource]?
@@ -70,7 +69,6 @@ struct AppConfig: Codable, Equatable {
     static let path = directory.appendingPathComponent("config.json")
 
     static let fallback = AppConfig(
-        refreshSeconds: 300,
         // Observed accounts are appended automatically
         accounts: []
     )
@@ -95,10 +93,10 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
-    /// Whether a change needs a refetch (sources or interval changed). Not for label-only changes
+    /// Whether a change needs a refetch (sources or accounts changed). Not for label-only changes.
+    /// The fetch interval isn't configurable (`PollSchedule`); a leftover `refreshSeconds` key is ignored
     func needsRefetch(comparedTo other: AppConfig) -> Bool {
-        refreshSeconds != other.refreshSeconds
-            || effectiveSources(discovered: []) != other.effectiveSources(discovered: [])
+        effectiveSources(discovered: []) != other.effectiveSources(discovered: [])
             || accounts.map(\.key) != other.accounts.map(\.key)
     }
 
